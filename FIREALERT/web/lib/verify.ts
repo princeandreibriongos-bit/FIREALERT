@@ -1,6 +1,9 @@
 import { createVerify } from "node:crypto";
-import { WEARABLE_PUBLIC_KEY_PEM } from "./device-key";
 import type { SignatureStatus } from "./telemetry-core";
+
+// Wearable ECDSA P-256 public key, PEM. Leave null until a key is provisioned.
+// The matching private key stays on the wearable and must not be committed.
+const WEARABLE_PUBLIC_KEY_PEM: string | null = null;
 
 function evenHex(value: string): boolean {
   return value.length % 2 === 0 && /^[0-9a-fA-F]+$/.test(value);

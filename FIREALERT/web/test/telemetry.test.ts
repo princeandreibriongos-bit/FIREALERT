@@ -110,7 +110,7 @@ describe("incidents and routes", () => {
 
   it("builds an OSRM request in lon,lat order and reads a route", () => {
     const url = osrmUrl({ latitude: 14.5, longitude: 121.0 }, { latitude: 14.6, longitude: 121.1 });
-    assert.match(url, /121\.0,14\.5;121\.1,14\.6/);
+    assert.match(url, /121,14\.5;121\.1,14\.6/);
     const parsed = parseOsrm({
       code: "Ok",
       routes: [{ distance: 1200, duration: 180, geometry: { coordinates: [[121, 14.5], [121.1, 14.6]] } }],
