@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listTelemetry, logTelemetry, type TelemetryPayload } from "@/lib/telemetry-store";
+import { listTelemetry, logTelemetry, replaceTelemetry } from "@/lib/telemetry-store";
+
+export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   let body: unknown;
@@ -9,17 +11,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
   }
 
-  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+  const saved = logTelemetry(body);
+  if (!saved) {
     return NextResponse.json({ ok: false, error: "Expected a JSON object" }, { status: 400 });
   }
-
-  const payload = body as TelemetryPayload;
-  const saved = logTelemetry(payload);
 
   return NextResponse.json({
     ok: true,
     received_at: saved.received_at,
-    sequence: payload.sequence ?? null,
+    sequence: saved.sequence,
+    wearer_id: saved.wearer_id,
+    signature: saved.signature.status,
   });
 }
 
@@ -31,4 +33,9 @@ export async function GET() {
     latest: items[0] ?? null,
     items,
   });
+}
+
+export async function DELETE() {
+  replaceTelemetry([]);
+  return NextResponse.json({ ok: true });
 }
