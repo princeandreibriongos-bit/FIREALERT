@@ -5,3 +5,4 @@ out
 *.log
 *.tsbuildinfo
 data/network.json
+__pycache__/
