@@ -12,12 +12,14 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 import serial
 from serial.tools import list_ports
 
 API_URL = "http://127.0.0.1:3000/api/telemetry"
 BAUD = 115200
+NETWORK_PATH = Path(__file__).resolve().parent / "data" / "network.json"
 
 
 def pick_gateway_port() -> str:
@@ -33,6 +35,37 @@ def pick_gateway_port() -> str:
         if "303A" in port.hwid.upper():
             return port.device
     raise SystemExit("No ESP32 COM port found. Pass it explicitly, e.g. python serial-bridge.py COM5")
+
+
+def load_router() -> tuple[str, str] | None:
+    try:
+        data = json.loads(NETWORK_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    ssid = str(data.get("ssid") or "").strip()
+    password = data.get("password")
+    if not isinstance(password, str):
+        password = ""
+    if not ssid or len(ssid) > 32 or len(password) > 63:
+        return None
+    if any(ch in ssid or ch in password for ch in "\t\r\n"):
+        return None
+    return ssid, password
+
+
+def push_router(ser: serial.Serial, state: dict) -> None:
+    now = time.time()
+    if now < state["next"]:
+        return
+    creds = load_router()
+    state["next"] = now + (2 if state["pushes"] < 3 else 5)
+    if creds is None:
+        return
+    if creds != state["last"] or state["pushes"] < 3:
+        ser.write(f"wifi\t{creds[0]}\t{creds[1]}\n".encode("utf-8"))
+        print(f"sent router {creds[0]}", flush=True)
+        state["last"] = creds
+        state["pushes"] += 1
 
 
 def post_payload(obj: dict) -> None:
@@ -58,7 +91,9 @@ def main() -> None:
     ser.rts = False
     ser.open()
     buf = b""
+    router_state = {"next": time.time() + 1, "pushes": 0, "last": None}
     while True:
+        push_router(ser, router_state)
         chunk = ser.read(512)
         if not chunk:
             continue

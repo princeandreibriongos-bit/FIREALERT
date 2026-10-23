@@ -2,17 +2,14 @@
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
-#include <Wire.h>
-#include <SensirionI2cScd4x.h>
 #include <math.h>
+#include <string.h>
 
 #include "config.h"
+#include "features.h"
 #include "telemetry.h"
 
-SensirionI2cScd4x scd4x;
-
 static uint16_t g_sequence = 0;
-static bool g_scd40Ready = false;
 
 static void onEspNowSent(const uint8_t *mac, esp_now_send_status_t status) {
   Serial.print("[node-a] ESP-NOW send ");
@@ -22,34 +19,41 @@ static void onEspNowSent(const uint8_t *mac, esp_now_send_status_t status) {
 
 static bool initEspNow() {
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  const uint32_t start = millis();
-  while (WiFi.status() != WL_CONNECTED && (millis() - start) < WIFI_CONNECT_TIMEOUT_MS) {
-    delay(250);
-  }
 
   uint8_t homeChannel = WIFI_CHANNEL;
-  if (WiFi.status() == WL_CONNECTED) {
-    homeChannel = static_cast<uint8_t>(WiFi.channel());
-    Serial.printf("[node-a] Wi-Fi OK  IP=%s  channel=%u\n", WiFi.localIP().toString().c_str(),
-                  homeChannel);
+  if (wearableWifiConfigured()) {
+    WiFi.begin(wearableWifiSsid(), wearableWifiPassword());
+    const uint32_t start = millis();
+    while (WiFi.status() != WL_CONNECTED && (millis() - start) < WIFI_CONNECT_TIMEOUT_MS) {
+      delay(250);
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+      homeChannel = static_cast<uint8_t>(WiFi.channel());
+      Serial.printf("[node-a] channel lock via Wi-Fi  IP=%s  channel=%u\n",
+                    WiFi.localIP().toString().c_str(), homeChannel);
+    } else {
+      Serial.println("[node-a] Wi-Fi join failed; locking ESP-NOW channel manually");
+    }
   } else {
-    Serial.println("[node-a] Wi-Fi join failed; locking ESP-NOW channel manually");
+    Serial.printf("[node-a] no Wi-Fi configured; locking ESP-NOW channel %u\n", WIFI_CHANNEL);
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
     esp_wifi_set_promiscuous(true);
     esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
     esp_wifi_set_promiscuous(false);
+    homeChannel = WIFI_CHANNEL;
   }
 
   Serial.print("[node-a] STA MAC=");
   Serial.println(WiFi.macAddress());
-  Serial.printf("[node-a] ESP-NOW channel %u\n", homeChannel);
+  Serial.printf("[node-a] ESP-NOW channel %u  packet %u bytes\n", homeChannel,
+                static_cast<unsigned>(sizeof(TelemetryPacket)));
 
   if (esp_now_init() != ESP_OK) {
     Serial.println("[node-a] esp_now_init failed");
     return false;
   }
-
   esp_now_register_send_cb(onEspNowSent);
 
   esp_now_peer_info_t peer = {};
@@ -57,78 +61,58 @@ static bool initEspNow() {
   peer.channel = 0;
   peer.encrypt = false;
   peer.ifidx = WIFI_IF_STA;
-
-  if (esp_now_is_peer_exist(NODE_B_MAC)) {
-    return true;
-  }
-
-  if (esp_now_add_peer(&peer) != ESP_OK) {
+  if (!esp_now_is_peer_exist(NODE_B_MAC) && esp_now_add_peer(&peer) != ESP_OK) {
     Serial.println("[node-a] esp_now_add_peer failed");
     return false;
   }
-
   return true;
 }
 
-static bool initScd40() {
-  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_FREQUENCY_HZ);
-  scd4x.begin(Wire, SCD40_I2C_ADDR);
-
-  // wakeUp() can return a non-zero status if the sensor is already awake.
-  scd4x.wakeUp();
-  scd4x.stopPeriodicMeasurement();
-  scd4x.reinit();
-
-  uint64_t serialNumber = 0;
-  const int16_t identityError = scd4x.getSerialNumber(serialNumber);
-  if (identityError) {
-    Serial.printf("[node-a] SCD40 not found at 0x%02X (err %d)\n", SCD40_I2C_ADDR,
-                  identityError);
-    return false;
-  }
-
-  Serial.printf("[node-a] SCD40 serial %012llX\n", static_cast<unsigned long long>(serialNumber));
-
-  const int16_t startError = scd4x.startPeriodicMeasurement();
-  if (startError) {
-    Serial.printf("[node-a] SCD40 startPeriodicMeasurement failed (%d)\n", startError);
-    return false;
-  }
-
-  Serial.println("[node-a] SCD40 periodic measurement started");
-  return true;
+static void applyFloat(float &dst, bool ok, float value) {
+  dst = ok ? value : NAN;
 }
 
-// Future Bosch BME688 (I2C 0x77) — keep this as a no-op until the sensor exists.
-// Do not scan or begin() that address: a missing device would stall or spam errors.
-static bool readBme688Placeholder(float &gasResistanceOhm) {
-  gasResistanceOhm = NAN;
-  return false;
+static void fillPacket(TelemetryPacket &packet, const WearableReadings &in) {
+  memset(&packet, 0, sizeof(packet));
+  packet.version = TELEMETRY_VERSION;
+  packet.sequence = ++g_sequence;
+  packet.timestamp_ms = millis();
+  packet.fall_state = in.fall_state;
+  strncpy(packet.wearer_id, DEVICE_ID, sizeof(packet.wearer_id) - 1);
 
-  // --- Enable when the BME688 is installed ---------------------------------
-  // #include <bme68x.h>  // or Adafruit_BME680
-  // static Adafruit_BME680 bme688;
-  // if (!bme688.begin(BME688_I2C_ADDR)) return false;
-  // if (!bme688.performReading()) return false;
-  // gasResistanceOhm = bme688.gas_resistance;  // ohms
-  // return true;
-}
+  applyFloat(packet.co2_ppm, in.scd40, in.co2_ppm);
+  applyFloat(packet.scd40_temperature_c, in.scd40, in.scd40_temperature_c);
+  applyFloat(packet.scd40_humidity_rh, in.scd40, in.scd40_humidity_rh);
+  applyFloat(packet.bme_temperature_c, in.bme688, in.bme_temperature_c);
+  applyFloat(packet.bme_humidity_rh, in.bme688, in.bme_humidity_rh);
+  applyFloat(packet.pressure_hpa, in.bme688, in.pressure_hpa);
+  applyFloat(packet.gas_resistance_ohm, in.bme688, in.gas_resistance_ohm);
+  applyFloat(packet.heart_rate_bpm, in.max30102, in.heart_rate_bpm);
+  applyFloat(packet.spo2_percent, in.max30102, in.spo2_percent);
+  applyFloat(packet.accel_x, in.mpu6050, in.accel_x);
+  applyFloat(packet.accel_y, in.mpu6050, in.accel_y);
+  applyFloat(packet.accel_z, in.mpu6050, in.accel_z);
+  applyFloat(packet.gyro_x, in.mpu6050, in.gyro_x);
+  applyFloat(packet.gyro_y, in.mpu6050, in.gyro_y);
+  applyFloat(packet.gyro_z, in.mpu6050, in.gyro_z);
 
-static bool readScd40(float &co2Ppm, float &temperatureC, float &humidityRh) {
-  bool dataReady = false;
-  int16_t error = scd4x.getDataReadyStatus(dataReady);
-  if (error || !dataReady) {
-    return false;
-  }
+  packet.latitude_e7 = (in.gps_fix || in.gps_last_known) ? in.latitude_e7 : GPS_COORD_ABSENT;
+  packet.longitude_e7 = (in.gps_fix || in.gps_last_known) ? in.longitude_e7 : GPS_COORD_ABSENT;
+  packet.altitude_dm = (in.gps_fix || in.gps_last_known) ? in.altitude_dm : GPS_ALT_ABSENT;
+  packet.gps_satellites = in.gps_satellites;
+  packet.battery_percent = in.battery ? in.battery_percent : BATTERY_PERCENT_ABSENT;
+  packet.grace_remaining_ms = in.grace_remaining_ms;
+  packet.alert_outputs = in.alert_outputs;
 
-  uint16_t co2 = 0;
-  error = scd4x.readMeasurement(co2, temperatureC, humidityRh);
-  if (error || co2 == 0) {
-    return false;
-  }
-
-  co2Ppm = static_cast<float>(co2);
-  return true;
+  if (in.scd40) packet.flags |= FLAG_SCD40_OK;
+  if (in.bme688) packet.flags |= FLAG_BME688_OK;
+  if (in.max30102) packet.flags |= FLAG_MAX30102_OK;
+  if (in.mpu6050) packet.flags |= FLAG_MPU6050_OK;
+  if (in.gps_fix) packet.flags |= FLAG_GPS_FIX;
+  if (in.gps_last_known) packet.flags |= FLAG_GPS_LAST_KNOWN;
+  if (in.battery) packet.flags |= FLAG_BATTERY_OK;
+  if (in.fall_state == FALL_POSSIBLE || in.fall_state == FALL_GRACE) packet.flags |= FLAG_FALL_POSSIBLE;
+  if (in.fall_state == FALL_DISTRESS) packet.flags |= FLAG_DISTRESS;
 }
 
 void setup() {
@@ -136,8 +120,7 @@ void setup() {
   delay(1500);
   Serial.println();
   Serial.println("[node-a] FIREALERT wearable boot");
-
-  g_scd40Ready = initScd40();
+  featuresBegin();
   if (!initEspNow()) {
     Serial.println("[node-a] ESP-NOW init failed — halt");
     while (true) {
@@ -147,35 +130,18 @@ void setup() {
 }
 
 void loop() {
-  TelemetryPacket packet = {};
-  packet.version = TELEMETRY_VERSION;
-  packet.sequence = ++g_sequence;
-  packet.timestamp_ms = millis();
-  packet.co2_ppm = NAN;
-  packet.temperature_c = NAN;
-  packet.humidity_rh = NAN;
-  packet.gas_resistance_ohm = NAN;
-  packet.flags = 0;
+  WearableReadings readings = {};
+  featuresRead(readings);
 
-  if (g_scd40Ready) {
-    float co2 = NAN;
-    float t = NAN;
-    float rh = NAN;
-    if (readScd40(co2, t, rh)) {
-      packet.co2_ppm = co2;
-      packet.temperature_c = t;
-      packet.humidity_rh = rh;
-      packet.flags |= FLAG_SCD40_OK;
-      Serial.printf("[node-a] SCD40 CO2=%.0f ppm T=%.2f C RH=%.1f %%\n", co2, t, rh);
-    }
+  TelemetryPacket packet = {};
+  fillPacket(packet, readings);
+  if (featuresSign(packet)) {
+    packet.flags |= FLAG_SIGNED;
   }
 
-  // Commented-out placeholder field usage for the future BME688 gas reading.
-  // float bme688GasResistanceOhm = NAN;  // ohms, I2C 0x77
-  float bme688GasResistanceOhm = NAN;
-  if (readBme688Placeholder(bme688GasResistanceOhm)) {
-    packet.gas_resistance_ohm = bme688GasResistanceOhm;
-    packet.flags |= FLAG_BME688_OK;
+  if (readings.scd40) {
+    Serial.printf("[node-a] SCD40 CO2=%.0f ppm T=%.2f C RH=%.1f %%\n", readings.co2_ppm,
+                  readings.scd40_temperature_c, readings.scd40_humidity_rh);
   }
 
   const esp_err_t sendResult =

@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "FIREALERT",
-  description: "Firefighter wearable telemetry dashboard",
+  description: "Firefighter wearable monitoring board for the New Makati Central Fire Station prototype",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

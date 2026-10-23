@@ -2,7 +2,12 @@
 
 #include <stdint.h>
 
-// --- User settings ---------------------------------------------------------
+// --- Uplink ----------------------------------------------------------------
+// The capstone gateway forwards over cellular when a modem is installed.
+// Until then, Wi-Fi is the stand-in that carries the same JSON POST.
+// Set the router name and password on the dashboard. The constants below
+// are used only until the board has saved credentials of its own.
+static constexpr bool CELLULAR_MODEM_INSTALLED = false;
 static constexpr const char *WIFI_SSID = "YOUR_WIFI_SSID";
 static constexpr const char *WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 
@@ -12,3 +17,9 @@ static constexpr const char *TELEMETRY_URL = "http://192.168.1.13:3000/api/telem
 static constexpr const char *GATEWAY_ID = "node-b";
 static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000;
 static constexpr uint32_t HTTP_TIMEOUT_MS = 8000;
+
+// These match the wearable. The gateway reports them so the dashboard does
+// not describe hardware that is not on the board.
+static constexpr bool BUZZER_INSTALLED = false;
+static constexpr bool TOUCHSCREEN_INSTALLED = false;
+static constexpr const char *FALL_MODEL_ID = "edge-impulse-placeholder";

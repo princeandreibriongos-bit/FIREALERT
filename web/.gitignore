@@ -3,3 +3,6 @@ node_modules
 out
 .DS_Store
 *.log
+*.tsbuildinfo
+data/network.json
+__pycache__/
