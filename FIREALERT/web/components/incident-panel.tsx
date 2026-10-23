@@ -102,6 +102,10 @@ export function IncidentPanel({
   async function submit(event: FormEvent) {
     event.preventDefault();
     setFormError(null);
+    if (!title.trim() || !address.trim()) {
+      setFormError("Title and address are required.");
+      return;
+    }
     const latitude = lat.trim() === "" ? null : Number(lat);
     const longitude = lon.trim() === "" ? null : Number(lon);
     if ((latitude == null) !== (longitude == null) || (latitude != null && !Number.isFinite(latitude)) || (longitude != null && !Number.isFinite(longitude))) {
@@ -209,7 +213,7 @@ export function IncidentPanel({
         </div>
       ) : null}
 
-      <form className="incident-form" onSubmit={submit}>
+      <form className="incident-form" autoComplete="off" noValidate onSubmit={submit}>
         <p className="kicker">New incident</p>
         <label htmlFor="incident-title">Title</label>
         <input id="incident-title" value={title} onChange={(event) => setTitle(event.target.value)} required maxLength={80} />
@@ -225,11 +229,11 @@ export function IncidentPanel({
         <div className="coord-row">
           <div>
             <label htmlFor="incident-lat">Latitude</label>
-            <input id="incident-lat" inputMode="decimal" value={lat} onChange={(event) => setLat(event.target.value)} placeholder="optional" />
+            <input id="incident-lat" type="text" inputMode="decimal" autoComplete="off" value={lat} onChange={(event) => setLat(event.target.value)} placeholder="optional" />
           </div>
           <div>
             <label htmlFor="incident-lon">Longitude</label>
-            <input id="incident-lon" inputMode="decimal" value={lon} onChange={(event) => setLon(event.target.value)} placeholder="optional" />
+            <input id="incident-lon" type="text" inputMode="decimal" autoComplete="off" value={lon} onChange={(event) => setLon(event.target.value)} placeholder="optional" />
           </div>
         </div>
         <label htmlFor="incident-notes">Notes</label>
