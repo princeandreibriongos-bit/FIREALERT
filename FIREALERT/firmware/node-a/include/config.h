@@ -7,9 +7,9 @@
 static constexpr const char *DEVICE_ID = "FF-01";
 
 // --- ESP-NOW ---------------------------------------------------------------
-// The wearable does not use Wi-Fi for telemetry. It joins this AP only to
-// learn the channel Node B is using. Leave the placeholder SSID to skip the
-// join and lock WIFI_CHANNEL instead.
+// The wearable does not use Wi-Fi for telemetry. It joins an AP only to learn
+// the channel Node B is using. Set the router on the dashboard. These two
+// constants are used only until the board has saved credentials of its own.
 static constexpr uint8_t WIFI_CHANNEL = 9;
 static constexpr const char *WIFI_SSID = "YOUR_WIFI_SSID";
 static constexpr const char *WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";

@@ -1,14 +1,17 @@
 #include "features.h"
 
 #include <Arduino.h>
+#include <WiFi.h>
 #include <Wire.h>
 #include <SensirionI2cScd4x.h>
 #include <math.h>
 #include <string.h>
 
 #include "config.h"
+#include "wifi_store.h"
 
 static SensirionI2cScd4x g_scd4x;
+static WifiCreds g_wifi = {};
 static bool g_scd40Ready = false;
 static FallState g_fall = FALL_IDLE;
 static uint32_t g_graceStartMs = 0;
@@ -24,22 +27,35 @@ static bool wifiNameIsPlaceholder() {
 }
 
 // Exposed for the boot log in main via a weak-free local helper.
-bool wearableWifiConfigured() { return !wifiNameIsPlaceholder(); }
+bool wearableWifiConfigured() {
+  return g_wifi.ssid[0] != '\0' && strcmp(g_wifi.ssid, "YOUR_WIFI_SSID") != 0;
+}
+
+const char *wearableWifiSsid() { return g_wifi.ssid; }
+const char *wearableWifiPassword() { return g_wifi.password; }
+
+static void rememberWifi(const char *ssid, const char *password) {
+  strncpy(g_wifi.ssid, ssid, sizeof(g_wifi.ssid) - 1);
+  g_wifi.ssid[sizeof(g_wifi.ssid) - 1] = '\0';
+  strncpy(g_wifi.password, password, sizeof(g_wifi.password) - 1);
+  g_wifi.password[sizeof(g_wifi.password) - 1] = '\0';
+}
 
 static bool pollFallCommand() {
-  static char buf[16];
-  static size_t n = 0;
+  static char line[128];
+  static size_t used = 0;
   bool fired = false;
-  while (Serial.available() > 0) {
-    const char c = static_cast<char>(Serial.read());
-    if (c == '\n' || c == '\r') {
-      buf[n] = '\0';
-      if (n >= 4 && strncasecmp(buf, "fall", 4) == 0) {
-        fired = true;
-      }
-      n = 0;
-    } else if (n + 1 < sizeof(buf)) {
-      buf[n++] = c;
+  while (takeSerialLine(line, sizeof(line), used)) {
+    if (strcasecmp(line, "fall") == 0) fired = true;
+    char ssid[33];
+    char password[64];
+    if (parseWifiLine(line, ssid, sizeof(ssid), password, sizeof(password)) && saveWifiCreds(ssid, password)) {
+      rememberWifi(ssid, password);
+      g_wifi.fromNvs = true;
+      Serial.printf("[node-a] router saved: %s\n", g_wifi.ssid);
+      WiFi.mode(WIFI_STA);
+      WiFi.disconnect();
+      WiFi.begin(g_wifi.ssid, g_wifi.password);
     }
   }
   return fired;
@@ -203,6 +219,15 @@ static void readBattery(WearableReadings &out) {
 }
 
 void featuresBegin() {
+  if (loadWifiCreds(g_wifi)) {
+    Serial.printf("[node-a] router from device memory: %s\n", g_wifi.ssid);
+  } else if (!wifiNameIsPlaceholder()) {
+    rememberWifi(WIFI_SSID, WIFI_PASSWORD);
+    Serial.printf("[node-a] router from config.h fallback: %s\n", g_wifi.ssid);
+  } else {
+    Serial.println("[node-a] no router yet — enter it on the dashboard");
+  }
+
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_FREQUENCY_HZ);
   if (CANCEL_BUTTON_ENABLED) {
     pinMode(CANCEL_BUTTON_PIN, INPUT_PULLUP);

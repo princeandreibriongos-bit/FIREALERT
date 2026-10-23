@@ -22,7 +22,7 @@ static bool initEspNow() {
 
   uint8_t homeChannel = WIFI_CHANNEL;
   if (wearableWifiConfigured()) {
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    WiFi.begin(wearableWifiSsid(), wearableWifiPassword());
     const uint32_t start = millis();
     while (WiFi.status() != WL_CONNECTED && (millis() - start) < WIFI_CONNECT_TIMEOUT_MS) {
       delay(250);

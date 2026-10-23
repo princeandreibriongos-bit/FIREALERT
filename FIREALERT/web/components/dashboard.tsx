@@ -7,6 +7,7 @@ import { STATION } from "@/lib/station";
 import { ageLabel, fmt, manilaTime } from "@/lib/format";
 import { IncidentPanel } from "./incident-panel";
 import { Badge } from "./ui";
+import { RouterForm } from "./router-form";
 import { WearerDetail } from "./wearer-detail";
 
 type TelemetryResponse = { ok: boolean; count: number; items: NormalizedTelemetry[] };
@@ -117,6 +118,8 @@ export default function Dashboard() {
           </div>
         </dl>
       </header>
+
+      <RouterForm gatewaySsid={items?.find((row) => row.router_ssid)?.router_ssid ?? null} />
 
       {error ? <p className="banner error">{error}</p> : null}
       {alerts.length > 0 ? (

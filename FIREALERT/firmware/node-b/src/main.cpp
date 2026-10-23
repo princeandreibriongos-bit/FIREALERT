@@ -9,6 +9,9 @@
 
 #include "config.h"
 #include "telemetry.h"
+#include "wifi_store.h"
+
+static WifiCreds g_wifi = {};
 
 static constexpr size_t QUEUE_DEPTH = 8;
 static constexpr size_t PACKET_MAX = 250;
@@ -87,9 +90,13 @@ static bool ensureWifi() {
   if (WiFi.status() == WL_CONNECTED) {
     return true;
   }
-  Serial.printf("[node-b] Connecting to Wi-Fi SSID '%s'\n", WIFI_SSID);
+  if (g_wifi.ssid[0] == '\0') {
+    Serial.println("[node-b] no router saved");
+    return false;
+  }
+  Serial.printf("[node-b] Connecting to Wi-Fi SSID '%s'\n", g_wifi.ssid);
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.begin(g_wifi.ssid, g_wifi.password);
 
   const uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED && (millis() - start) < WIFI_CONNECT_TIMEOUT_MS) {
@@ -216,7 +223,87 @@ static void addEmptySensors(JsonDocument &doc) {
   signature["hex"] = nullptr;
 }
 
+static String networkConfigUrl() {
+  String url = TELEMETRY_URL;
+  const int scheme = url.indexOf("://");
+  const int slash = url.indexOf('/', scheme < 0 ? 0 : scheme + 3);
+  if (slash < 0) return url + "/api/network";
+  return url.substring(0, slash) + "/api/network";
+}
+
+static void applyRouter(const char *ssid, const char *password) {
+  strncpy(g_wifi.ssid, ssid, sizeof(g_wifi.ssid) - 1);
+  g_wifi.ssid[sizeof(g_wifi.ssid) - 1] = '\0';
+  strncpy(g_wifi.password, password, sizeof(g_wifi.password) - 1);
+  g_wifi.password[sizeof(g_wifi.password) - 1] = '\0';
+  g_wifi.fromNvs = true;
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+  WiFi.begin(g_wifi.ssid, g_wifi.password);
+  Serial.printf("[node-b] joining router %s\n", g_wifi.ssid);
+}
+
+static void loadRouter() {
+  if (loadWifiCreds(g_wifi)) {
+    Serial.printf("[node-b] router from device memory: %s\n", g_wifi.ssid);
+    return;
+  }
+  if (WIFI_SSID[0] != '\0' && strcmp(WIFI_SSID, "YOUR_WIFI_SSID") != 0) {
+    strncpy(g_wifi.ssid, WIFI_SSID, sizeof(g_wifi.ssid) - 1);
+    strncpy(g_wifi.password, WIFI_PASSWORD, sizeof(g_wifi.password) - 1);
+    g_wifi.ssid[sizeof(g_wifi.ssid) - 1] = '\0';
+    g_wifi.password[sizeof(g_wifi.password) - 1] = '\0';
+    Serial.printf("[node-b] router from config.h fallback: %s\n", g_wifi.ssid);
+    return;
+  }
+  Serial.println("[node-b] no router yet — enter it on the dashboard");
+}
+
+static void readRouterFromSerial() {
+  static char line[128];
+  static size_t used = 0;
+  while (takeSerialLine(line, sizeof(line), used)) {
+    char ssid[33];
+    char password[64];
+    if (!parseWifiLine(line, ssid, sizeof(ssid), password, sizeof(password))) continue;
+    if (!saveWifiCreds(ssid, password)) continue;
+    applyRouter(ssid, password);
+    Serial.println("[node-b] router saved from USB");
+  }
+}
+
+static void pollDashboardRouter() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  static uint32_t lastMs = 0;
+  const uint32_t now = millis();
+  if (lastMs != 0 && now - lastMs < 20000) return;
+  lastMs = now;
+
+  HTTPClient http;
+  http.setTimeout(4000);
+  const String url = networkConfigUrl();
+  if (!http.begin(url)) return;
+  const int status = http.GET();
+  if (status != 200) {
+    http.end();
+    return;
+  }
+  const String body = http.getString();
+  http.end();
+
+  JsonDocument doc;
+  if (deserializeJson(doc, body)) return;
+  const char *ssid = doc["ssid"] | "";
+  const char *password = doc["password"] | "";
+  if (ssid[0] == '\0') return;
+  if (strcmp(ssid, g_wifi.ssid) == 0 && strcmp(password, g_wifi.password) == 0) return;
+  if (!saveWifiCreds(ssid, password)) return;
+  Serial.printf("[node-b] router updated from dashboard: %s\n", ssid);
+  applyRouter(ssid, password);
+}
+
 static bool postDocument(JsonDocument &doc) {
+  doc["router_ssid"] = g_wifi.ssid[0] ? g_wifi.ssid : nullptr;
   if (!ensureWifi() && !CELLULAR_MODEM_INSTALLED) {
     return false;
   }
@@ -401,6 +488,7 @@ void setup() {
   delay(1500);
   Serial.println();
   Serial.println("[node-b] FIREALERT field gateway boot");
+  loadRouter();
   Serial.printf("[node-b] v2 packet %u bytes; uplink %s\n", static_cast<unsigned>(sizeof(TelemetryPacket)),
                 CELLULAR_MODEM_INSTALLED ? "cellular" : "wifi stand-in");
   if (!ensureWifi()) {
@@ -415,6 +503,9 @@ void setup() {
 }
 
 void loop() {
+  readRouterFromSerial();
+  pollDashboardRouter();
+
   static uint32_t lastBeatMs = 0;
   if (millis() - lastBeatMs >= 2000) {
     lastBeatMs = millis();

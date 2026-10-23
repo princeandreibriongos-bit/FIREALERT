@@ -50,7 +50,7 @@ npm run dev
 
 Open http://localhost:3000
 
-The board groups packets by wearer. **Load sample crew** fills the empty slots with simulated packets so the layout can be reviewed without hardware. **Save incident** geocodes an address when coordinates are omitted and requests advisory driving routes from the station. Those routes are not dispatch orders.
+The board groups packets by wearer. **Router** stores the Wi-Fi name and password on this computer (`web/data/network.json`, not committed). **Save router**, then run `npm run bridge` with the gateway on USB so the board stores it. A gateway that is already online also picks up a later change from `GET /api/network`. **Load sample crew** fills the empty slots with simulated packets so the layout can be reviewed without hardware. **Save incident** geocodes an address when coordinates are omitted and requests advisory driving routes from the station. Those routes are not dispatch orders.
 
 `npm test` checks packet normalization, signature verification, and route parsing.
 

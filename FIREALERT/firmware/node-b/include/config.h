@@ -5,6 +5,8 @@
 // --- Uplink ----------------------------------------------------------------
 // The capstone gateway forwards over cellular when a modem is installed.
 // Until then, Wi-Fi is the stand-in that carries the same JSON POST.
+// Set the router name and password on the dashboard. The constants below
+// are used only until the board has saved credentials of its own.
 static constexpr bool CELLULAR_MODEM_INSTALLED = false;
 static constexpr const char *WIFI_SSID = "YOUR_WIFI_SSID";
 static constexpr const char *WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";

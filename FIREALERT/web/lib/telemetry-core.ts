@@ -14,6 +14,7 @@ export type RawTelemetry = {
   source?: string;
   wearer_id?: string;
   gateway?: string;
+  router_ssid?: string | null;
   uplink?: "wifi" | "cellular" | { active?: string; planned?: string; cellular_ready?: boolean };
   source_mac?: string;
   rssi_dbm?: number | null;
@@ -63,6 +64,7 @@ export type NormalizedTelemetry = {
   wearer_id: string;
   source: string;
   gateway: string;
+  router_ssid: string | null;
   uplink: Uplink;
   cellular_ready: boolean;
   source_mac: string | null;
@@ -188,6 +190,7 @@ export function normalizeTelemetry(
     wearer_id: text(input.wearer_id, 32) || mac || "unassigned",
     source: text(input.source, 32) || "node-a",
     gateway: text(input.gateway, 32) || "gateway",
+    router_ssid: text(input.router_ssid, 32) || null,
     uplink: uplink.active,
     cellular_ready: uplink.cellularReady,
     source_mac: mac || null,

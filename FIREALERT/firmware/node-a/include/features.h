@@ -42,5 +42,7 @@ struct WearableReadings {
 void featuresBegin();
 void featuresRead(WearableReadings &out);
 bool wearableWifiConfigured();
+const char *wearableWifiSsid();
+const char *wearableWifiPassword();
 // Returns false while ECDSA_SIGNING_ENABLED is off. Packet stays unsigned.
 bool featuresSign(TelemetryPacket &packet);
