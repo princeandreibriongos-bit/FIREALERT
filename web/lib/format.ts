@@ -3,18 +3,43 @@ export function fmt(value: number | null | undefined, digits = 0, suffix = ""): 
   return `${value.toFixed(digits)}${suffix}`;
 }
 
+const manilaDateTime = new Intl.DateTimeFormat("en-PH", {
+  timeZone: "Asia/Manila",
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+const manilaClockFormat = new Intl.DateTimeFormat("en-PH", {
+  timeZone: "Asia/Manila",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+const manilaDayFormat = new Intl.DateTimeFormat("en-PH", {
+  timeZone: "Asia/Manila",
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+});
+
 export function manilaTime(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("en-PH", {
-    timeZone: "Asia/Manila",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).format(date);
+  return manilaDateTime.format(date);
+}
+
+export function manilaClock(now: number): string {
+  return manilaClockFormat.format(now);
+}
+
+export function manilaDay(now: number): string {
+  return manilaDayFormat.format(now);
 }
 
 export function ageLabel(iso: string, now: number): string {

@@ -3,7 +3,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { manilaTime } from "@/lib/format";
 
-export function RouterForm({ gatewaySsid }: { gatewaySsid: string | null }) {
+export function RouterForm() {
+  const [kind, setKind] = useState<"hotspot" | "router">("hotspot");
   const [ssid, setSsid] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
@@ -54,7 +55,11 @@ export function RouterForm({ gatewaySsid }: { gatewaySsid: string | null }) {
         return;
       }
       setUpdatedAt(json.updated_at ?? null);
-      setMessage(`Saved ${json.ssid ?? ssid}. Plug in the gateway and run npm run bridge, or wait for its next check-in if it is already online.`);
+      setMessage(
+        kind === "hotspot"
+          ? "Saved the phone hotspot. Leave the hotspot on, and keep the USB bridge running. The gateway joins it like any other Wi-Fi network."
+          : "Saved the router. The USB bridge sends it to the gateway, or the gateway picks it up on its next check-in.",
+      );
     } catch {
       setError("Could not save the router");
     } finally {
@@ -63,50 +68,65 @@ export function RouterForm({ gatewaySsid }: { gatewaySsid: string | null }) {
   }
 
   return (
-    <section className="panel router-panel" aria-labelledby="router-heading">
-      <div className="panel-head">
-        <h2 id="router-heading">Router</h2>
+    <section className="card">
+      <div className="card-head">
+        <div>
+          <h2 className="card-title">{kind === "hotspot" ? "Phone hotspot" : "Room router"}</h2>
+          <p className="card-note">
+            {kind === "hotspot"
+              ? "A phone hotspot is a normal Wi-Fi network for the gateway. Use 2.4 GHz. On Android, turn on maximize compatibility. Keep the phone awake."
+              : "Name and password for the access point at the station. The same form is used for a phone hotspot."}
+          </p>
+        </div>
       </div>
-      <p className="note">
-        Wi-Fi name and password for the field gateway. Saved on this computer, not in the firmware source. Anyone who can open this dashboard can read the password.
-      </p>
-      {!ready ? <p className="empty">Loading the saved router…</p> : null}
-      <form className="incident-form" autoComplete="off" noValidate onSubmit={submit}>
-        <label htmlFor="router-ssid">Wi-Fi name</label>
-        <input
-          id="router-ssid"
-          name="ssid"
-          value={ssid}
-          onChange={(event) => setSsid(event.target.value)}
-          maxLength={32}
-          placeholder="Router name"
-          autoComplete="off"
-          disabled={!ready || saving}
-        />
-        <label htmlFor="router-password">Password</label>
-        <input
-          id="router-password"
-          name="password"
-          type={show ? "text" : "password"}
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          maxLength={63}
-          placeholder="Router password"
-          autoComplete="new-password"
-          disabled={!ready || saving}
-        />
+      {!ready ? <p className="fine">Loading saved settings…</p> : null}
+      <form className="form" autoComplete="off" noValidate onSubmit={submit}>
+        <div className="chips" role="group" aria-label="Network type">
+          <button type="button" className="chip" aria-pressed={kind === "hotspot"} onClick={() => setKind("hotspot")}>
+            Phone hotspot
+          </button>
+          <button type="button" className="chip" aria-pressed={kind === "router"} onClick={() => setKind("router")}>
+            Room router
+          </button>
+        </div>
+        <div className="field">
+          <label htmlFor="router-ssid">{kind === "hotspot" ? "Hotspot name" : "Wi-Fi name (SSID)"}</label>
+          <input
+            id="router-ssid"
+            name="ssid"
+            value={ssid}
+            onChange={(event) => setSsid(event.target.value)}
+            maxLength={32}
+            placeholder={kind === "hotspot" ? "iPhone or Android hotspot name" : "Router name"}
+            autoComplete="off"
+            disabled={!ready || saving}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="router-password">Password</label>
+          <input
+            id="router-password"
+            name="password"
+            type={show ? "text" : "password"}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            maxLength={63}
+            placeholder={kind === "hotspot" ? "Hotspot password" : "Router password"}
+            autoComplete="new-password"
+            disabled={!ready || saving}
+          />
+        </div>
         <div className="row-actions">
-          <button type="button" className="quiet" onClick={() => setShow((value) => !value)}>
+          <button type="button" className="btn btn-ghost" onClick={() => setShow((value) => !value)}>
             {show ? "Hide password" : "Show password"}
           </button>
-          <button type="submit" className="primary" disabled={!ready || saving}>
+          <button type="submit" className="btn btn-primary" disabled={!ready || saving}>
             {saving ? "Saving…" : "Save router"}
           </button>
         </div>
-        {updatedAt ? <p className="note">Last saved {manilaTime(updatedAt)} PHT.</p> : <p className="note">No router saved yet.</p>}
-        {gatewaySsid ? <p className="note">Last gateway packet was on {gatewaySsid}.</p> : null}
-        {message ? <p className="note">{message}</p> : null}
-        {error ? <p className="warn">{error}</p> : null}
+        {updatedAt ? <p className="fine">Last saved {manilaTime(updatedAt)} PHT.</p> : <p className="fine">No router saved yet.</p>}
+        {message ? <p className="fine">{message}</p> : null}
+        {error ? <p className="warn-text">{error}</p> : null}
       </form>
     </section>
   );

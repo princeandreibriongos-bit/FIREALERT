@@ -8,6 +8,7 @@ replays those objects to http://localhost:3000/api/telemetry.
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
 import urllib.error
@@ -18,6 +19,10 @@ import serial
 from serial.tools import list_ports
 
 API_URL = "http://127.0.0.1:3000/api/telemetry"
+LINK_URL = "http://127.0.0.1:3000/api/link"
+HEARTBEAT = re.compile(
+    r"\[node-b\] heartbeat wifi=(up|down) ip=(\S+) ch=(\d+) mac=([0-9A-Fa-f:]+)(?: cellular=(\S+))?"
+)
 BAUD = 115200
 NETWORK_PATH = Path(__file__).resolve().parent / "data" / "network.json"
 
@@ -68,16 +73,35 @@ def push_router(ser: serial.Serial, state: dict) -> None:
         state["pushes"] += 1
 
 
-def post_payload(obj: dict) -> None:
-    data = json.dumps(obj).encode("utf-8")
+def post_json(url: str, payload: dict) -> int:
+    data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
-        API_URL,
+        url,
         data=data,
         headers={"Content-Type": "application/json", "X-Firealert-Bridge": "serial"},
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=5) as resp:
-        print(f"forwarded seq={obj.get('sequence')} HTTP {resp.status}", flush=True)
+        return resp.status
+
+
+def post_heartbeat(match: re.Match[str]) -> None:
+    status = post_json(
+        LINK_URL,
+        {
+            "wifi": match.group(1),
+            "ip": match.group(2),
+            "channel": int(match.group(3)),
+            "mac": match.group(4),
+            "cellular": match.group(5) or "not-installed",
+        },
+    )
+    print(f"gateway wifi={match.group(1)} ip={match.group(2)} HTTP {status}", flush=True)
+
+
+def post_payload(obj: dict) -> None:
+    status = post_json(API_URL, obj)
+    print(f"forwarded seq={obj.get('sequence')} HTTP {status}", flush=True)
 
 
 def main() -> None:
@@ -101,6 +125,13 @@ def main() -> None:
         while b"\n" in buf:
             line, buf = buf.split(b"\n", 1)
             text = line.decode("utf-8", errors="replace").strip()
+            beat = HEARTBEAT.search(text)
+            if beat:
+                try:
+                    post_heartbeat(beat)
+                except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                    print(f"link post failed: {exc}", flush=True)
+                continue
             if not text.startswith("{"):
                 continue
             try:
@@ -110,7 +141,7 @@ def main() -> None:
                 continue
             try:
                 post_payload(obj)
-            except urllib.error.URLError as exc:
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
                 print(f"API post failed: {exc}", flush=True)
                 time.sleep(1)
 

@@ -1,5 +1,21 @@
 import type { Metadata } from "next";
+import { DM_Sans, IBM_Plex_Mono } from "next/font/google";
+import { BoardProvider } from "@/components/board-provider";
+import { Shell } from "@/components/shell";
 import "./globals.css";
+
+const sans = DM_Sans({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-dm",
+});
+
+const mono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  display: "swap",
+  variable: "--font-plex",
+});
 
 export const metadata: Metadata = {
   title: "FIREALERT",
@@ -8,8 +24,12 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="en" className={`${sans.variable} ${mono.variable}`}>
+      <body>
+        <BoardProvider>
+          <Shell>{children}</Shell>
+        </BoardProvider>
+      </body>
     </html>
   );
 }

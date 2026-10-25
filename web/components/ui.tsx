@@ -1,43 +1,67 @@
 import type { ReactNode } from "react";
 
-export function Metric({ label, value, detail }: { label: string; value: string; detail?: string }) {
+export function PageHeader({
+  eyebrow,
+  title,
+  description,
+  actions,
+}: {
+  eyebrow?: string;
+  title: string;
+  description?: string;
+  actions?: ReactNode;
+}) {
+  return (
+    <header className="page-head">
+      <div className="page-head-copy">
+        {eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
+        <h1>{title}</h1>
+        {description ? <p className="page-desc">{description}</p> : null}
+      </div>
+      {actions ? <div className="page-actions">{actions}</div> : null}
+    </header>
+  );
+}
+
+export function Metric({
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+  tone?: "ok" | "warn" | "alert";
+}) {
   const empty = value === "—";
   return (
-    <article className="metric">
-      <p className="kicker">{label}</p>
-      <p className={`reading ${empty ? "empty" : ""}`}>{value}</p>
-      {detail ? <p className="detail">{detail}</p> : null}
+    <article className={`metric${tone && !empty ? ` tone-${tone}` : ""}`}>
+      <p className="metric-label">{label}</p>
+      <p className={`metric-value${empty ? " is-empty" : ""}`}>{value}</p>
+      {detail ? <p className="metric-detail">{detail}</p> : null}
     </article>
   );
 }
 
-export function Section({
-  id,
-  title,
-  badge,
-  note,
+export function Badge({
+  tone,
   children,
-  alert = false,
+  pulse = false,
 }: {
-  id: string;
-  title: string;
-  badge?: ReactNode;
-  note?: string;
+  tone: "live" | "wait" | "alert" | "caution" | "sim" | "brand";
   children: ReactNode;
-  alert?: boolean;
+  pulse?: boolean;
 }) {
-  return (
-    <section className={`panel ${alert ? "alert" : ""}`} aria-labelledby={id}>
-      <div className="panel-head">
-        <h2 id={id}>{title}</h2>
-        {badge}
-      </div>
-      {note ? <p className="note">{note}</p> : null}
-      {children}
-    </section>
-  );
+  return <span className={`badge tone-${tone}${pulse ? " is-pulse" : ""}`}>{children}</span>;
 }
 
-export function Badge({ tone, children }: { tone: "live" | "wait" | "alert" | "caution" | "sim"; children: ReactNode }) {
-  return <span className={`badge ${tone}`}>{children}</span>;
+export function EmptyState({ title, body, action }: { title: string; body: string; action?: ReactNode }) {
+  return (
+    <div className="empty-state">
+      <h2>{title}</h2>
+      <p>{body}</p>
+      {action}
+    </div>
+  );
 }

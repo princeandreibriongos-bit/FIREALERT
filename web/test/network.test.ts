@@ -12,6 +12,12 @@ describe("router credentials", () => {
     }
   });
 
+  it("accepts a phone hotspot name", () => {
+    const parsed = parseRouterInput({ ssid: "Prince's iPhone", password: "hotspot-pass" });
+    assert.equal(parsed.ok, true);
+    if (parsed.ok) assert.equal(parsed.value.ssid, "Prince's iPhone");
+  });
+
   it("allows an open network and keeps a password that starts with a space", () => {
     const parsed = parseRouterInput({ ssid: "Lab", password: "  spaced" });
     assert.equal(parsed.ok, true);
