@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { geocodeAddress } from "@/lib/geocode";
-import { addIncident, listIncidents, parseIncidentInput } from "@/lib/incidents";
+import { createIncident, loadIncidentList } from "@/lib/incident-store";
+import { parseIncidentInput } from "@/lib/incidents";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  return NextResponse.json({ ok: true, incidents: listIncidents() });
+  return NextResponse.json({ ok: true, incidents: await loadIncidentList() });
 }
 
 export async function POST(request: NextRequest) {
@@ -35,6 +36,6 @@ export async function POST(request: NextRequest) {
     geocoded = true;
   }
 
-  const incident = addIncident(draft);
+  const incident = await createIncident(draft);
   return NextResponse.json({ ok: true, incident, geocoded });
 }

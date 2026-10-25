@@ -1,6 +1,7 @@
 "use client";
 
 import { gatewayPhase } from "@/lib/connection";
+import { HOSTED_BOARD_URL } from "@/lib/hosts";
 import { ageLabel } from "@/lib/format";
 import { useBoard } from "./board-provider";
 import { RouterForm } from "./router-form";
@@ -43,6 +44,13 @@ export function GatewayPage() {
             </ol>
             <p className="card-note">
               The phone will give this computer a different address than the one baked into the gateway. The USB bridge still delivers packets, so the dashboard does not depend on that address.
+            </p>
+            <p className="card-note">
+              The hosted board at{" "}
+              <a href={HOSTED_BOARD_URL} style={{ textDecoration: "underline" }}>
+                {HOSTED_BOARD_URL.replace("https://", "")}
+              </a>{" "}
+              shows the same live readings while this computer is running the bridge.
             </p>
           </section>
           <section className="card">

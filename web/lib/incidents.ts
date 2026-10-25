@@ -82,3 +82,8 @@ export function setIncidentStatus(id: string, status: "open" | "closed"): Incide
   incident.status = status;
   return incident;
 }
+
+export function replaceIncidents(next: Incident[]): void {
+  const items = incidents();
+  items.splice(0, items.length, ...next);
+}

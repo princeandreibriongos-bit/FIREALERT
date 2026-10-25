@@ -5,7 +5,12 @@ import type { Incident } from "@/lib/incidents";
 import type { GatewayLink } from "@/lib/link-status";
 import { fallNeedsReview, latestByWearer, type NormalizedTelemetry } from "@/lib/telemetry-core";
 
-type TelemetryResponse = { ok: boolean; count: number; items: NormalizedTelemetry[] };
+type BoardResponse = {
+  ok: boolean;
+  items?: NormalizedTelemetry[];
+  incidents?: Incident[];
+  gateway?: GatewayLink;
+};
 
 type BoardValue = {
   items: NormalizedTelemetry[] | null;
@@ -40,57 +45,31 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState<string | null>(null);
 
-  const refreshTelemetry = useCallback(async () => {
+  const refreshBoard = useCallback(async () => {
     try {
-      const response = await fetch("/api/telemetry", { cache: "no-store" });
+      const response = await fetch("/api/board");
       if (!response.ok) throw new Error("bad status");
-      const json = (await response.json()) as TelemetryResponse;
-      setItems(json.items);
+      const json = (await response.json()) as BoardResponse;
+      setItems(json.items ?? []);
+      setIncidents(json.incidents ?? []);
+      if (json.gateway) setGateway(json.gateway);
       setError(null);
     } catch {
       setError("The board could not reach the telemetry service.");
-    }
-  }, []);
-
-  const refreshIncidents = useCallback(async () => {
-    try {
-      const response = await fetch("/api/incidents", { cache: "no-store" });
-      if (!response.ok) return;
-      const json = (await response.json()) as { incidents: Incident[] };
-      setIncidents(json.incidents);
-    } catch {
-      // Keep the last list when a refresh fails.
     } finally {
       setIncidentsReady(true);
     }
   }, []);
 
-  const refreshLink = useCallback(async () => {
-    try {
-      const response = await fetch("/api/link", { cache: "no-store" });
-      if (!response.ok) return;
-      const json = (await response.json()) as { gateway?: GatewayLink };
-      if (json.gateway) setGateway(json.gateway);
-    } catch {
-      // Keep the last heartbeat when a refresh fails.
-    }
-  }, []);
-
   useEffect(() => {
-    void refreshTelemetry();
-    void refreshIncidents();
-    void refreshLink();
-    const telemetryTimer = setInterval(() => void refreshTelemetry(), 2000);
-    const linkTimer = setInterval(() => void refreshLink(), 2000);
-    const incidentTimer = setInterval(() => void refreshIncidents(), 5000);
+    void refreshBoard();
+    const boardTimer = setInterval(() => void refreshBoard(), 3000);
     const clock = setInterval(() => setNow(Date.now()), 1000);
     return () => {
-      clearInterval(telemetryTimer);
-      clearInterval(linkTimer);
-      clearInterval(incidentTimer);
+      clearInterval(boardTimer);
       clearInterval(clock);
     };
-  }, [refreshIncidents, refreshLink, refreshTelemetry]);
+  }, [refreshBoard]);
 
   const crew = useMemo(() => latestByWearer(items ?? []), [items]);
   const alerts = useMemo(() => crew.filter((person) => fallNeedsReview(person.fall.state)), [crew]);
@@ -100,23 +79,23 @@ export function BoardProvider({ children }: { children: ReactNode }) {
     try {
       const response = await fetch("/api/demo", { method: "POST" });
       if (!response.ok) setError("Sample crew could not be loaded.");
-      await refreshTelemetry();
+      await refreshBoard();
     } catch {
       setError("Sample crew could not be loaded.");
     } finally {
       setBusy(null);
     }
-  }, [refreshTelemetry]);
+  }, [refreshBoard]);
 
   const clearPackets = useCallback(async () => {
     setBusy("clear");
     try {
       await fetch("/api/telemetry", { method: "DELETE" });
-      await refreshTelemetry();
+      await refreshBoard();
     } finally {
       setBusy(null);
     }
-  }, [refreshTelemetry]);
+  }, [refreshBoard]);
 
   const value = useMemo<BoardValue>(
     () => ({
@@ -129,26 +108,12 @@ export function BoardProvider({ children }: { children: ReactNode }) {
       crew,
       alerts,
       busy,
-      refreshTelemetry,
-      refreshIncidents,
+      refreshTelemetry: refreshBoard,
+      refreshIncidents: refreshBoard,
       loadSample,
       clearPackets,
     }),
-    [
-      alerts,
-      busy,
-      clearPackets,
-      crew,
-      error,
-      gateway,
-      incidents,
-      incidentsReady,
-      items,
-      loadSample,
-      now,
-      refreshIncidents,
-      refreshTelemetry,
-    ],
+    [alerts, busy, clearPackets, crew, error, gateway, incidents, incidentsReady, items, loadSample, now, refreshBoard],
   );
 
   return <BoardContext.Provider value={value}>{children}</BoardContext.Provider>;

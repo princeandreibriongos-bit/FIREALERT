@@ -72,7 +72,7 @@ export function readLink(): GatewayLink {
   return { ...store() };
 }
 
-const HEARTBEAT_FRESH_MS = 8_000;
+const HEARTBEAT_FRESH_MS = 18_000;
 const WEARABLE_FRESH_MS = 20_000;
 
 export type GatewayPhase = "up" | "down" | "waiting";

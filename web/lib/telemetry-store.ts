@@ -1,3 +1,4 @@
+import { appendSharedItem, boardBackend, noteItems, readRedisBoard, readSharedBoard, writeSharedItems } from "./shared-board";
 import { normalizeTelemetry, type NormalizedTelemetry, type RawTelemetry } from "./telemetry-core";
 import { signatureStatus } from "./verify";
 
@@ -29,4 +30,42 @@ export function replaceTelemetry(entries: NormalizedTelemetry[]): void {
 
 export function listTelemetry(): NormalizedTelemetry[] {
   return logs();
+}
+
+async function persistTelemetry(entry: NormalizedTelemetry | null): Promise<void> {
+  const kind = boardBackend();
+  if (!entry || kind === "memory") return;
+  if (kind === "shared" && process.env.NODE_ENV === "development") {
+    noteItems(listTelemetry());
+    return;
+  }
+  await appendSharedItem(entry);
+}
+
+export async function saveTelemetry(raw: RawTelemetry | unknown, receivedAt = new Date().toISOString()): Promise<NormalizedTelemetry | null> {
+  const entry = logTelemetry(raw, receivedAt);
+  try {
+    await persistTelemetry(entry);
+  } catch (error) {
+    console.error("[FIREALERT] shared log", error);
+  }
+  return entry;
+}
+
+export async function readTelemetry(): Promise<NormalizedTelemetry[]> {
+  const kind = boardBackend();
+  if (kind === "memory" || (kind === "shared" && process.env.NODE_ENV === "development")) return listTelemetry();
+  if (kind === "redis") return (await readRedisBoard()).items;
+  return (await readSharedBoard()).items;
+}
+
+export async function writeTelemetry(entries: NormalizedTelemetry[]): Promise<void> {
+  replaceTelemetry(entries);
+  const kind = boardBackend();
+  if (kind === "memory") return;
+  if (kind === "shared" && process.env.NODE_ENV === "development") {
+    noteItems(listTelemetry());
+    return;
+  }
+  await writeSharedItems(entries);
 }

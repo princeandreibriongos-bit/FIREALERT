@@ -3,6 +3,7 @@
 Windows Firewall often blocks the ESP32 from POSTing to this PC.
 The gateway already prints each payload on USB serial; this script
 replays those objects to http://localhost:3000/api/telemetry.
+The local API then copies the same readings to the hosted board.
 """
 
 from __future__ import annotations

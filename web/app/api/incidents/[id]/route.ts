@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { setIncidentStatus } from "@/lib/incidents";
+import { changeIncidentStatus } from "@/lib/incident-store";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +20,7 @@ export async function PATCH(request: NextRequest, context: Context) {
     return NextResponse.json({ ok: false, error: "Status must be open or closed" }, { status: 400 });
   }
 
-  const incident = setIncidentStatus(id, status);
+  const incident = await changeIncidentStatus(id, status);
   if (!incident) {
     return NextResponse.json({ ok: false, error: "Incident not found" }, { status: 404 });
   }

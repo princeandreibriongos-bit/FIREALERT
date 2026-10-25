@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listTelemetry, logTelemetry, replaceTelemetry } from "@/lib/telemetry-store";
+import { readTelemetry, saveTelemetry, writeTelemetry } from "@/lib/telemetry-store";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
   }
 
-  const saved = logTelemetry(body);
+  const saved = await saveTelemetry(body);
   if (!saved) {
     return NextResponse.json({ ok: false, error: "Expected a JSON object" }, { status: 400 });
   }
@@ -26,16 +26,21 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET() {
-  const items = listTelemetry();
-  return NextResponse.json({
-    ok: true,
-    count: items.length,
-    latest: items[0] ?? null,
-    items,
-  });
+  try {
+    const items = await readTelemetry();
+    return NextResponse.json({
+      ok: true,
+      count: items.length,
+      latest: items[0] ?? null,
+      items,
+    });
+  } catch (error) {
+    console.error("[FIREALERT] telemetry", error);
+    return NextResponse.json({ ok: false, error: "Shared log unavailable" }, { status: 503 });
+  }
 }
 
 export async function DELETE() {
-  replaceTelemetry([]);
+  await writeTelemetry([]);
   return NextResponse.json({ ok: true });
 }

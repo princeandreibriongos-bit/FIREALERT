@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { noteLink, parseLinkReport, readLink } from "@/lib/link-status";
+import { loadGateway, saveLinkReport } from "@/lib/link-store";
+import { parseLinkReport } from "@/lib/link-status";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  return NextResponse.json({ ok: true, gateway: readLink() });
+  try {
+    return NextResponse.json({ ok: true, gateway: await loadGateway() });
+  } catch (error) {
+    console.error("[FIREALERT] link", error);
+    return NextResponse.json({ ok: false, error: "Shared log unavailable" }, { status: 503 });
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -16,5 +22,5 @@ export async function POST(request: NextRequest) {
   }
   const parsed = parseLinkReport(body);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 });
-  return NextResponse.json({ ok: true, gateway: noteLink(parsed.value) });
+  return NextResponse.json({ ok: true, gateway: await saveLinkReport(parsed.value) });
 }
