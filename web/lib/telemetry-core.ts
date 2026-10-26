@@ -275,3 +275,135 @@ export function linkState(receivedAt: string, now = Date.now()): "live" | "stale
   if (Number.isNaN(at)) return "unknown";
   return now - at <= 20_000 ? "live" : "stale";
 }
+
+export type AirKind = "awaiting" | "steady" | "occupied" | "mix" | "both" | "bme";
+
+export type AirReading = {
+  kind: AirKind;
+  tone: "ok" | "warn" | "alert";
+  title: string;
+  detail: string;
+};
+
+const TREND_MIN_MS = 40_000;
+const TREND_TARGET_MS = 75_000;
+const TREND_MAX_MS = 110_000;
+
+function round(value: number): number {
+  return Math.round(value);
+}
+
+function priorSample(history: NormalizedTelemetry[], latestMs: number): NormalizedTelemetry | null {
+  let best: NormalizedTelemetry | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const item of history) {
+    const at = Date.parse(item.received_at);
+    if (Number.isNaN(at)) continue;
+    const age = latestMs - at;
+    if (age < TREND_MIN_MS || age > TREND_MAX_MS) continue;
+    const distance = Math.abs(age - TREND_TARGET_MS);
+    if (distance < bestDistance) {
+      best = item;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+function trendSentence(co2Then: number | null, co2Now: number | null, gasThen: number | null, gasNow: number | null): string {
+  const parts: string[] = [];
+  if (co2Then != null && co2Now != null) parts.push(`CO₂ ${round(co2Then)} → ${round(co2Now)} ppm`);
+  if (gasThen != null && gasNow != null && gasThen > 0) {
+    const change = round((1 - gasNow / gasThen) * 100);
+    const direction = change > 0 ? `down ${change}%` : change < 0 ? `up ${Math.abs(change)}%` : "unchanged";
+    parts.push(`gas resistance ${round(gasThen)} → ${round(gasNow)} Ω (${direction})`);
+  }
+  return parts.length ? `${parts.join(". ")}.` : "";
+}
+
+export function airReading(latest: NormalizedTelemetry, history: NormalizedTelemetry[]): AirReading {
+  const rows = history.filter((item) => item.wearer_id === latest.wearer_id);
+  const co2Now = latest.scd40.installed ? latest.scd40.co2_ppm : null;
+  const gasNow = latest.bme688.installed ? latest.bme688.gas_resistance_ohm : null;
+  const temp = latest.bme688.installed ? latest.bme688.temperature_c : null;
+  const rh = latest.bme688.installed ? latest.bme688.humidity_rh : null;
+  const hasCo2 = co2Now != null;
+  const hasGas = gasNow != null;
+  const warm = temp != null && rh != null && temp >= 30 && rh >= 65;
+  const warmLine = warm ? " The air at the device is warm and humid. That is the board's air, not body temperature." : "";
+
+  if (!hasCo2 && !hasGas) {
+    return {
+      kind: "awaiting",
+      tone: "ok",
+      title: "No air reading yet",
+      detail: "The SCD40 and BME688 have not both reported a usable sample.",
+    };
+  }
+
+  const latestMs = Date.parse(latest.received_at);
+  const prior = Number.isNaN(latestMs) ? null : priorSample(rows, latestMs);
+  const co2Then = prior?.scd40.installed ? prior.scd40.co2_ppm : null;
+  const gasThen = prior?.bme688.installed ? prior.bme688.gas_resistance_ohm : null;
+  const co2Delta = hasCo2 && co2Then != null ? co2Now - co2Then : null;
+  const co2Rising = co2Delta != null && (co2Delta >= 120 || (co2Now >= 1000 && co2Delta >= 60));
+  const co2High = hasCo2 && co2Now >= 5000;
+  const co2Elevated = hasCo2 && co2Now >= 1000;
+  const gasRatio = hasGas && gasThen != null && gasThen > 0 ? gasNow / gasThen : null;
+  const gasDrop = gasRatio != null && gasRatio <= 0.75;
+  const moved = trendSentence(co2Then, co2Now, gasThen, gasNow);
+
+  if (hasCo2 && hasGas) {
+    if (co2Rising && gasDrop) {
+      return {
+        kind: "both",
+        tone: co2High ? "alert" : "warn",
+        title: "CO₂ and the gas reading are both moving",
+        detail: `${moved} The air at this person is changing in two ways. Gas resistance is not a carbon monoxide or LPG reading.${warmLine}`,
+      };
+    }
+    if (co2Rising || (co2Elevated && !gasDrop)) {
+      return {
+        kind: "occupied",
+        tone: co2High ? "alert" : "warn",
+        title: co2Rising ? "CO₂ is climbing. The gas reading is steady." : "CO₂ is elevated. The gas reading is steady.",
+        detail: `${co2Rising ? moved : `CO₂ is ${round(co2Now)} ppm.`} That fits exhaled air in a closed space. The BME688 did not show a separate gas shift.${warmLine}`,
+      };
+    }
+    if (gasDrop) {
+      return {
+        kind: "mix",
+        tone: "warn",
+        title: "Gas reading dropped. CO₂ stayed steady.",
+        detail: `${moved} Something besides exhaled CO₂ changed the air at the sensor. The BME688 does not name that gas, and this is not an LPG alarm.${warmLine}`,
+      };
+    }
+    return {
+      kind: "steady",
+      tone: "ok",
+      title: warm ? "Warm, humid air at the device" : "Air at the wearable is steady",
+      detail: `CO₂ is ${round(co2Now)} ppm. Gas resistance is ${round(gasNow)} Ω. ${prior ? "Neither moved enough in the last minute to call a change." : "Not enough history yet to judge a change."}${warmLine}`,
+    };
+  }
+
+  if (hasGas && !hasCo2) {
+    return {
+      kind: "bme",
+      tone: gasDrop ? "warn" : "ok",
+      title: gasDrop ? "Gas reading dropped" : warm ? "Warm, humid air at the device" : "BME688 air at the device",
+      detail: `${temp == null ? "" : `${temp.toFixed(1)} °C. `}${rh == null ? "" : `${round(rh)}% humidity. `}Gas resistance is ${round(gasNow)} Ω. ${gasDrop ? moved : "No CO₂ sample, so this cannot tell exhaled air from another mix."} Gas resistance is not a carbon monoxide or LPG reading.${warmLine}`,
+    };
+  }
+
+  const cue = co2Cue(co2Now, true);
+  return {
+    kind: cue === "routine" ? "steady" : "occupied",
+    tone: cue === "high" ? "alert" : cue === "elevated" ? "warn" : "ok",
+    title: cue === "high" ? "CO₂ is high" : cue === "elevated" ? "CO₂ is elevated" : "CO₂ is in the routine range",
+    detail: `CO₂ is ${round(co2Now)} ppm from the SCD40. The BME688 has no gas sample to compare.${warmLine}`,
+  };
+}
+
+export function airNeedsAttention(kind: AirKind): boolean {
+  return kind === "occupied" || kind === "mix" || kind === "both";
+}

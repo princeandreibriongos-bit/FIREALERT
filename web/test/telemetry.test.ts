@@ -4,6 +4,8 @@ import { describe, it } from "node:test";
 import { parseIncidentInput } from "../lib/incidents.ts";
 import { osrmUrl, parseOsrm } from "../lib/routing.ts";
 import {
+  airNeedsAttention,
+  airReading,
   co2Cue,
   gpsIsCurrent,
   latestByWearer,
@@ -75,6 +77,42 @@ describe("telemetry", () => {
     assert.equal(co2Cue(6000, true), "high");
     assert.equal(linkState(at, Date.parse(at) + 5000), "live");
     assert.equal(linkState(at, Date.parse(at) + 21000), "stale");
+  });
+
+  it("reads CO2 and gas resistance together", () => {
+    const older = sample({
+      sequence: 1,
+      scd40: { ok: true, co2_ppm: 700, temperature_c: 31, humidity_rh: 60 },
+      bme688: { ok: true, temperature_c: 32, humidity_rh: 66, pressure_hpa: 1013, gas_resistance_ohm: 40000 },
+    });
+    const climbed = sample({
+      sequence: 2,
+      scd40: { ok: true, co2_ppm: 980, temperature_c: 31, humidity_rh: 60 },
+      bme688: { ok: true, temperature_c: 32, humidity_rh: 66, pressure_hpa: 1013, gas_resistance_ohm: 39000 },
+    });
+    climbed.received_at = "2026-10-24T02:01:20.000Z";
+    const occupied = airReading(climbed, [climbed, older]);
+    assert.equal(occupied.kind, "occupied");
+    assert.equal(airNeedsAttention(occupied.kind), true);
+
+    const shifted = sample({
+      sequence: 3,
+      scd40: { ok: true, co2_ppm: 720, temperature_c: 31, humidity_rh: 60 },
+      bme688: { ok: true, temperature_c: 32, humidity_rh: 66, pressure_hpa: 1013, gas_resistance_ohm: 20000 },
+    });
+    shifted.received_at = "2026-10-24T02:01:20.000Z";
+    assert.equal(airReading(shifted, [shifted, older]).kind, "mix");
+
+    const both = sample({
+      sequence: 4,
+      scd40: { ok: true, co2_ppm: 1100, temperature_c: 31, humidity_rh: 60 },
+      bme688: { ok: true, temperature_c: 32.5, humidity_rh: 70, pressure_hpa: 1013, gas_resistance_ohm: 18000 },
+    });
+    both.received_at = "2026-10-24T02:01:20.000Z";
+    const combined = airReading(both, [both, older]);
+    assert.equal(combined.kind, "both");
+    assert.match(combined.detail, /not a carbon monoxide or LPG reading/i);
+    assert.match(combined.detail, /warm and humid/i);
   });
 
   it("rejects a non-object packet", () => {

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { gatewayPhase, newestHardware, wearablePhase } from "@/lib/connection";
-import { co2Cue, fallNeedsReview, linkState } from "@/lib/telemetry-core";
+import { airNeedsAttention, airReading, fallNeedsReview, linkState } from "@/lib/telemetry-core";
 import { ageLabel, fmt, manilaTime } from "@/lib/format";
 import { useBoard } from "./board-provider";
 import { Badge, EmptyState, PageHeader } from "./ui";
@@ -18,10 +18,7 @@ export function Overview() {
   const { items, error, crew, alerts, incidents, gateway, now, busy, loadSample } = useBoard();
   const live = crew.filter((person) => linkState(person.received_at, now) === "live").length;
   const stale = crew.filter((person) => linkState(person.received_at, now) !== "live");
-  const air = crew.filter((person) => {
-    const cue = co2Cue(person.scd40.co2_ppm, person.scd40.installed);
-    return cue === "elevated" || cue === "high";
-  });
+  const air = crew.filter((person) => airNeedsAttention(airReading(person, items ?? []).kind));
   const open = incidents.filter((incident) => incident.status === "open");
   const simulated = crew.some((person) => person.simulated);
   const recent = (items ?? []).slice(0, 6);
@@ -156,17 +153,17 @@ export function Overview() {
                       <p className="section-label">Air cue</p>
                       <ul className="attention-list">
                         {air.map((person) => {
-                          const cue = co2Cue(person.scd40.co2_ppm, person.scd40.installed);
+                          const reading = airReading(person, items ?? []);
                           return (
                             <li key={person.wearer_id}>
                               <Link
-                                className={`attention-card ${cue === "high" ? "is-alert" : "is-warn"}`}
+                                className={`attention-card ${reading.tone === "alert" ? "is-alert" : "is-warn"}`}
                                 href={`/crew/${person.wearer_id}?tab=environment`}
                               >
                                 <strong>
-                                  {person.wearer_id} · CO₂ {fmt(person.scd40.co2_ppm, 0, " ppm")}
+                                  {person.wearer_id} · {reading.title}
                                 </strong>
-                                <span>{cue === "high" ? "High cue — review" : "Elevated indoor-air cue"}</span>
+                                <span>{reading.detail}</span>
                               </Link>
                             </li>
                           );

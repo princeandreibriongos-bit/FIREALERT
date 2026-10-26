@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ageLabel, fmt, manilaTime, uiLabel, vecText } from "@/lib/format";
-import { co2Cue, fallNeedsReview, linkState, type NormalizedTelemetry } from "@/lib/telemetry-core";
+import { airReading, co2Cue, fallNeedsReview, linkState, type NormalizedTelemetry } from "@/lib/telemetry-core";
 import { useBoard } from "./board-provider";
 import { Badge, EmptyState, Metric, SensorStatus } from "./ui";
 
@@ -113,6 +113,7 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
   const link = linkState(packet.received_at, now);
   const gps = packet.gps;
   const cue = co2Cue(packet.scd40.co2_ppm, packet.scd40.installed);
+  const air = airReading(packet, items ?? []);
   const mapHref =
     gps.latitude != null && gps.longitude != null
       ? `https://www.openstreetmap.org/?mlat=${gps.latitude}&mlon=${gps.longitude}#map=17/${gps.latitude}/${gps.longitude}`
@@ -159,6 +160,10 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
               <p className="fine">Open Motion for acceleration and the model slot.</p>
             </div>
             <SensorStatus scd40={packet.scd40.installed} bme688={packet.bme688.installed} />
+            <div className={`callout ${air.tone === "alert" ? "is-alert" : air.tone === "warn" ? "is-warn" : "is-ok"}`}>
+              <p>{air.title}</p>
+              <p className="fine">{air.detail}</p>
+            </div>
             <div className="metrics">
               <Metric
                 label="CO₂"
@@ -212,6 +217,10 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
         {tab === "environment" ? (
           <div role="tabpanel">
             <SensorStatus scd40={packet.scd40.installed} bme688={packet.bme688.installed} />
+            <div className={`callout ${air.tone === "alert" ? "is-alert" : air.tone === "warn" ? "is-warn" : "is-ok"}`}>
+              <p>{air.title}</p>
+              <p className="fine">{air.detail}</p>
+            </div>
             <p className="fine">
               CO₂ comes from the SCD40 only. BME688 temperature is air at the device, not core body temperature, and that sensor does not measure CO₂. Cues are not certified gas alarms.
             </p>

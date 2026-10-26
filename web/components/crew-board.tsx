@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ageLabel, fmt } from "@/lib/format";
-import { co2Cue, fallNeedsReview, linkState, type NormalizedTelemetry } from "@/lib/telemetry-core";
+import { airReading, co2Cue, fallNeedsReview, linkState, type NormalizedTelemetry } from "@/lib/telemetry-core";
 import { useBoard } from "./board-provider";
 import { Icon } from "./icons";
 import { Badge, EmptyState, PageHeader, SensorStatus } from "./ui";
@@ -107,6 +107,7 @@ export function CrewBoard() {
         {visible.map((person) => {
           const link = linkState(person.received_at, now);
           const cue = co2Cue(person.scd40.co2_ppm, person.scd40.installed);
+          const air = airReading(person, items ?? []);
           return (
             <Link key={person.wearer_id} href={`/crew/${person.wearer_id}`} className="person-card" data-tone={toneOf(person, now)}>
               <div className="person-top">
@@ -129,6 +130,7 @@ export function CrewBoard() {
                   HR <b>{fmt(person.max30102.heart_rate_bpm, 0)}</b>
                 </span>
               </div>
+              <p className="fine">{air.title}</p>
               <dl className="bme-grid">
                 <div>
                   <dt>BME temp</dt>
