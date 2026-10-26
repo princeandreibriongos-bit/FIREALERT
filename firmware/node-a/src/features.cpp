@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <Wire.h>
+#include <Adafruit_BME680.h>
 #include <SensirionI2cScd4x.h>
 #include <math.h>
 #include <string.h>
@@ -11,8 +12,11 @@
 #include "wifi_store.h"
 
 static SensirionI2cScd4x g_scd4x;
+static TwoWire g_bme688Wire = TwoWire(1);
+static Adafruit_BME680 g_bme688(&g_bme688Wire);
 static WifiCreds g_wifi = {};
 static bool g_scd40Ready = false;
+static bool g_bme688Ready = false;
 static FallState g_fall = FALL_IDLE;
 static uint32_t g_graceStartMs = 0;
 
@@ -41,12 +45,16 @@ static void rememberWifi(const char *ssid, const char *password) {
   g_wifi.password[sizeof(g_wifi.password) - 1] = '\0';
 }
 
+static void scanI2C(TwoWire &bus, int sda, int scl, const char *label);
+static void runSensorScan();
+
 static bool pollFallCommand() {
   static char line[128];
   static size_t used = 0;
   bool fired = false;
   while (takeSerialLine(line, sizeof(line), used)) {
     if (strcasecmp(line, "fall") == 0) fired = true;
+    if (strcasecmp(line, "scan") == 0) runSensorScan();
     char ssid[33];
     char password[64];
     if (parseWifiLine(line, ssid, sizeof(ssid), password, sizeof(password)) && saveWifiCreds(ssid, password)) {
@@ -170,12 +178,40 @@ static void readScd40(WearableReadings &out) {
   out.scd40_humidity_rh = humidity;
 }
 
-static void readBme688(WearableReadings &) {
-  // Driver is intentionally not linked. A missing device must not be probed:
-  // a stuck I2C read would stall the wearable.
-  if (BME688_ENABLED) {
-    Serial.println("[node-a] BME688 flag is on but the driver is not linked");
+static void configureBme688() {
+  g_bme688.setTemperatureOversampling(BME680_OS_8X);
+  g_bme688.setHumidityOversampling(BME680_OS_2X);
+  g_bme688.setPressureOversampling(BME680_OS_4X);
+  g_bme688.setIIRFilterSize(BME680_FILTER_SIZE_3);
+  g_bme688.setGasHeater(320, 150);
+}
+
+static bool beginBme688() {
+  if (!BME688_ENABLED) return false;
+  if (BME688_SEPARATE_I2C_BUS) {
+    g_bme688Wire.begin(BME688_I2C_SDA_PIN, BME688_I2C_SCL_PIN, I2C_FREQUENCY_HZ);
+    Serial.printf("[node-a] BME688 I2C SDA=%d SCL=%d\n", BME688_I2C_SDA_PIN, BME688_I2C_SCL_PIN);
   }
+  const uint8_t candidates[] = {BME688_I2C_ADDR, BME688_I2C_ADDR_ALT};
+  for (uint8_t addr : candidates) {
+    if (g_bme688.begin(addr)) {
+      configureBme688();
+      Serial.printf("[node-a] BME688 ready at 0x%02X\n", addr);
+      return true;
+    }
+  }
+  Serial.printf("[node-a] BME688 not found at 0x%02X or 0x%02X\n", BME688_I2C_ADDR, BME688_I2C_ADDR_ALT);
+  return false;
+}
+
+static void readBme688(WearableReadings &out) {
+  if (!g_bme688Ready) return;
+  if (!g_bme688.performReading()) return;
+  out.bme688 = true;
+  out.bme_temperature_c = g_bme688.temperature;
+  out.bme_humidity_rh = g_bme688.humidity;
+  out.pressure_hpa = g_bme688.pressure / 100.0f;
+  out.gas_resistance_ohm = g_bme688.gas_resistance;
 }
 
 static void readMax30102(WearableReadings &) {
@@ -218,6 +254,28 @@ static void readBattery(WearableReadings &out) {
   out.battery_percent = static_cast<uint8_t>(percent);
 }
 
+static void runSensorScan() {
+  scanI2C(Wire, I2C_SDA_PIN, I2C_SCL_PIN, "SCD40 bus");
+  scanI2C(g_bme688Wire, BME688_I2C_SDA_PIN, BME688_I2C_SCL_PIN, "BME688 bus");
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_FREQUENCY_HZ);
+}
+
+static void scanI2C(TwoWire &bus, int sda, int scl, const char *label) {
+  bus.begin(sda, scl, I2C_FREQUENCY_HZ);
+  Serial.printf("[node-a] I2C scan %s SDA=%d SCL=%d\n", label, sda, scl);
+  uint8_t found = 0;
+  for (uint8_t addr = 1; addr < 127; ++addr) {
+    bus.beginTransmission(addr);
+    if (bus.endTransmission() == 0) {
+      ++found;
+      Serial.printf("[node-a]   found 0x%02X\n", addr);
+    }
+  }
+  if (found == 0) {
+    Serial.println("[node-a]   no device answered");
+  }
+}
+
 void featuresBegin() {
   if (loadWifiCreds(g_wifi)) {
     Serial.printf("[node-a] router from device memory: %s\n", g_wifi.ssid);
@@ -228,7 +286,7 @@ void featuresBegin() {
     Serial.println("[node-a] no router yet — enter it on the dashboard");
   }
 
-  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_FREQUENCY_HZ);
+  runSensorScan();
   if (CANCEL_BUTTON_ENABLED) {
     pinMode(CANCEL_BUTTON_PIN, INPUT_PULLUP);
   }
@@ -238,6 +296,7 @@ void featuresBegin() {
   }
 
   g_scd40Ready = beginScd40();
+  g_bme688Ready = beginBme688();
   Serial.printf("[node-a] placeholders bme=%d max30102=%d mpu=%d gps=%d battery=%d screen=%d buzzer=%d ecdsa=%d model=%s\n",
                 BME688_ENABLED, MAX30102_ENABLED, MPU6050_ENABLED, GPS_ENABLED, BATTERY_SENSE_ENABLED,
                 TOUCHSCREEN_INSTALLED, BUZZER_INSTALLED, ECDSA_SIGNING_ENABLED, FALL_MODEL_ID);

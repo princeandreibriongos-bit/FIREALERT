@@ -59,7 +59,7 @@ export function Overview() {
           </h2>
           <p className="card-note">
             {hardware
-              ? `${hardware.wearer_id} · CO₂ ${fmt(hardware.scd40.co2_ppm, 0, " ppm")} · ${fmt(hardware.scd40.temperature_c, 1, " °C")} · ${ageLabel(hardware.received_at, now)}`
+              ? `${hardware.wearer_id} · SCD40 ${hardware.scd40.installed ? "detected" : "not detected"} · BME688 ${hardware.bme688.installed ? "detected" : "not detected"} · CO₂ ${fmt(hardware.scd40.co2_ppm, 0, " ppm")} · BME ${fmt(hardware.bme688.temperature_c, 1, " °C")} · ${ageLabel(hardware.received_at, now)}`
               : "No wearable packet yet. Sample crew does not count as a live connection."}
           </p>
         </div>
@@ -210,6 +210,8 @@ export function Overview() {
                       {row.fall.state}
                       {" · CO₂ "}
                       {fmt(row.scd40.co2_ppm, 0)}
+                      {" · BME "}
+                      {fmt(row.bme688.temperature_c, 1, " °C")}
                     </span>
                   </li>
                 ))}
@@ -251,7 +253,12 @@ export function Overview() {
                   return (
                     <li key={person.wearer_id}>
                       <Link className="mini-row" href={`/crew/${person.wearer_id}`}>
-                        <strong>{person.wearer_id}</strong>
+                        <strong>
+                          {person.wearer_id}
+                          <span className="fine">
+                            SCD40 {person.scd40.installed ? "detected" : "not detected"} · BME688 {person.bme688.installed ? "detected" : "not detected"} · {fmt(person.bme688.temperature_c, 1, " °C")}
+                          </span>
+                        </strong>
                         <span>
                           {fallNeedsReview(person.fall.state) ? (
                             <Badge tone="alert">{person.fall.state}</Badge>

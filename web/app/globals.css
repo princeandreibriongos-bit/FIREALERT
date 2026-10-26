@@ -752,6 +752,68 @@ a {
   font-family: var(--font-plex), ui-monospace, monospace;
 }
 
+.sensor-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sensor-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.sensor-pill i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted-2, #5c6b7a);
+}
+
+.sensor-pill.is-on {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 35%, transparent);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+
+.sensor-pill.is-on i {
+  background: var(--ok);
+}
+
+.bme-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+  margin: 0;
+}
+
+.bme-grid div {
+  min-width: 0;
+}
+
+.bme-grid dt {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.bme-grid dd {
+  margin: 2px 0 0;
+  font-family: var(--font-plex), ui-monospace, monospace;
+  font-size: 0.9rem;
+  font-weight: 560;
+}
+
 .toolbar {
   display: flex;
   flex-wrap: wrap;

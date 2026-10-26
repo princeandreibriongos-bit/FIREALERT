@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { ageLabel, fmt, manilaTime, uiLabel, vecText } from "@/lib/format";
 import { co2Cue, fallNeedsReview, linkState, type NormalizedTelemetry } from "@/lib/telemetry-core";
 import { useBoard } from "./board-provider";
-import { Badge, EmptyState, Metric } from "./ui";
+import { Badge, EmptyState, Metric, SensorStatus } from "./ui";
 
 const TABS = ["status", "device", "physiology", "environment", "motion", "location"] as const;
 type TabId = (typeof TABS)[number];
@@ -158,6 +158,7 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
               <p>{fallCopy(packet)}</p>
               <p className="fine">Open Motion for acceleration and the model slot.</p>
             </div>
+            <SensorStatus scd40={packet.scd40.installed} bme688={packet.bme688.installed} />
             <div className="metrics">
               <Metric
                 label="CO₂"
@@ -165,6 +166,7 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
                 detail={co2Detail(packet)}
                 tone={cue === "high" ? "alert" : cue === "elevated" ? "warn" : cue === "routine" ? "ok" : undefined}
               />
+              <Metric label="BME temperature" value={fmt(packet.bme688.temperature_c, 1, " °C")} detail={packet.bme688.installed ? "Air at the device" : "BME688 not detected"} />
               <Metric label="Heart rate" value={fmt(packet.max30102.heart_rate_bpm, 0, " bpm")} />
               <Metric label="Estimated SpO₂" value={fmt(packet.max30102.spo2_percent, 0, "%")} />
               <Metric label="Signal" value={fmt(packet.rssi_dbm, 0, " dBm")} detail={packet.gateway || "Gateway"} />
@@ -209,6 +211,7 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
 
         {tab === "environment" ? (
           <div role="tabpanel">
+            <SensorStatus scd40={packet.scd40.installed} bme688={packet.bme688.installed} />
             <p className="fine">
               CO₂ comes from the SCD40 only. BME688 temperature is air at the device, not core body temperature, and that sensor does not measure CO₂. Cues are not certified gas alarms.
             </p>

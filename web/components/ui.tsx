@@ -44,6 +44,27 @@ export function Metric({
   );
 }
 
+export function SensorStatus({
+  scd40,
+  bme688,
+}: {
+  scd40: boolean;
+  bme688: boolean;
+}) {
+  return (
+    <div className="sensor-row" aria-label="Sensor status">
+      <span className={`sensor-pill${scd40 ? " is-on" : ""}`}>
+        <i aria-hidden />
+        SCD40 {scd40 ? "detected" : "not detected"}
+      </span>
+      <span className={`sensor-pill${bme688 ? " is-on" : ""}`}>
+        <i aria-hidden />
+        BME688 {bme688 ? "detected" : "not detected"}
+      </span>
+    </div>
+  );
+}
+
 export function Badge({
   tone,
   children,

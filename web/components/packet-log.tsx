@@ -27,13 +27,17 @@ export function PacketLog() {
   }, [fall, items, wearer]);
 
   function download() {
-    const header = ["received_at", "wearer_id", "sequence", "co2_ppm", "heart_rate_bpm", "fall", "gps", "signature"];
+    const header = ["received_at", "wearer_id", "sequence", "co2_ppm", "bme_temperature_c", "bme_humidity_rh", "bme_pressure_hpa", "bme_gas_resistance_ohm", "heart_rate_bpm", "fall", "gps", "signature"];
     const body = rows.map((row) =>
       [
         row.received_at,
         row.wearer_id,
         row.sequence == null ? "" : String(row.sequence),
         row.scd40.co2_ppm == null ? "" : String(row.scd40.co2_ppm),
+        row.bme688.temperature_c == null ? "" : String(row.bme688.temperature_c),
+        row.bme688.humidity_rh == null ? "" : String(row.bme688.humidity_rh),
+        row.bme688.pressure_hpa == null ? "" : String(row.bme688.pressure_hpa),
+        row.bme688.gas_resistance_ohm == null ? "" : String(row.bme688.gas_resistance_ohm),
         row.max30102.heart_rate_bpm == null ? "" : String(row.max30102.heart_rate_bpm),
         row.fall.state,
         row.gps.state,
@@ -130,6 +134,10 @@ export function PacketLog() {
                 <th>Wearer</th>
                 <th>Seq</th>
                 <th>CO₂</th>
+                <th>BME °C</th>
+                <th>BME RH</th>
+                <th>Pressure</th>
+                <th>Gas Ω</th>
                 <th>Heart rate</th>
                 <th>Fall</th>
                 <th>GPS</th>
@@ -145,6 +153,10 @@ export function PacketLog() {
                   </td>
                   <td>{row.sequence ?? "—"}</td>
                   <td>{fmt(row.scd40.co2_ppm, 0)}</td>
+                  <td>{fmt(row.bme688.temperature_c, 1)}</td>
+                  <td>{fmt(row.bme688.humidity_rh, 0)}</td>
+                  <td>{fmt(row.bme688.pressure_hpa, 0)}</td>
+                  <td>{fmt(row.bme688.gas_resistance_ohm, 0)}</td>
                   <td>{fmt(row.max30102.heart_rate_bpm, 0)}</td>
                   <td>{row.fall.state === "distress" || row.fall.state === "possible" || row.fall.state === "grace" ? <Badge tone="alert">{row.fall.state}</Badge> : row.fall.state}</td>
                   <td>{row.gps.state === "none" ? "—" : row.gps.state === "fix" ? "fix" : "last known"}</td>

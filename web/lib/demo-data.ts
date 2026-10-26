@@ -51,6 +51,7 @@ export function buildSampleCrew(now = Date.now()): { raw: RawTelemetry; received
         sequence: 3,
         timestamp_ms: 15000,
         scd40: { ok: true, co2_ppm: 842, temperature_c: 27.4, humidity_rh: 61.2 },
+        bme688: { ok: true, temperature_c: 29.4, humidity_rh: 58, pressure_hpa: 1008, gas_resistance_ohm: 84200 },
       },
     },
     {

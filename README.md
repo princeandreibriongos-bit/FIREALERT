@@ -4,6 +4,8 @@ Prototype wearable and incident board for the New Makati Central Fire Station ca
 
 The stack is an ESP32-S3 wrist node, an ESP32-S3 field gateway, and a Next.js board.
 
+On a new computer, read **[NEW-PC.md](NEW-PC.md)** before installing or flashing. It has the install list, the USB bridge, and the two saved Wi-Fi networks. The pin map is **[firmware/PINOUT.md](firmware/PINOUT.md)**.
+
 ## Updates
 
 - **Monitoring board.** Crew list, physiology, environment, motion and fall, location, signature status, incidents, and advisory driving routes. Sensors that are not installed stay marked awaiting hardware.
@@ -14,7 +16,7 @@ The stack is an ESP32-S3 wrist node, an ESP32-S3 field gateway, and a Next.js bo
 
 ## What is live
 
-- **Node A (wearable):** ESP32-S3 reads the SCD40 (CO₂, sensor temperature, humidity) and sends ESP-NOW to the gateway. Wi-Fi on this node is only for learning the gateway channel.
+- **Node A (wearable):** ESP32-S3 reads the SCD40 (CO₂, sensor temperature, humidity) and the BME688 (device air temperature, humidity, pressure, gas resistance) on the same I2C bus, then sends ESP-NOW to the gateway. Wi-Fi on this node is only for learning the gateway channel.
 - **Node B (gateway):** Receives ESP-NOW and POSTs JSON. Wi-Fi is the stand-in uplink until a cellular modem is installed.
 - **Web board:** `http://localhost:3000` after `npm run dev`. **Load sample crew** fills FF-01 and FF-02 with simulated packets so the layout can be reviewed without hardware.
 
@@ -25,7 +27,7 @@ Slots exist. The parts are not installed, and the firmware does not probe a miss
 | Slot | Role | Flag |
 | --- | --- | --- |
 | MAX30102 `0x57` | Heart rate and estimated SpO₂. Not a clinical measurement | `MAX30102_ENABLED` |
-| BME688 `0x77` | Device air temperature, humidity, pressure, gas resistance. Not CO₂ and not core body temperature | `BME688_ENABLED` |
+| BME688 `0x77` / `0x76` | Device air temperature, humidity, pressure, gas resistance. Not CO₂ and not core body temperature | `BME688_ENABLED` (driver linked) |
 | MPU-6050 `0x68` | Acceleration and gyro for the fall model | `MPU6050_ENABLED` |
 | GPS | A satellite fix, or a last-known point that is not the current position | `GPS_ENABLED` |
 | 2000 mAh LiPo gauge | Battery percent | `BATTERY_SENSE_ENABLED` |
@@ -59,9 +61,9 @@ Wearer id, telemetry URL, Node B MAC, and the ESP-NOW channel are still in:
 - `firmware/node-a/include/config.h`
 - `firmware/node-b/include/config.h`
 
-SCD40 wiring on Node A (ESP32-S3-DevKitC-1, USB at the bottom, left header): **3V3**, **GPIO 8 (SDA)**, **GPIO 9 (SCL)**, **GND**. Use 3.3 V, not 5 V.
+**Pin map (all boards, all modules):** see **[firmware/PINOUT.md](firmware/PINOUT.md)**.
 
-Reserved pins, not initialized: cancel button GPIO 4, buzzer GPIO 5, battery sense GPIO 6, GPS RX 16 / TX 15. Confirm them against the N16R8 pinout before wiring.
+Summary for Node A: SCD40 on **GPIO 8 (SDA)** and **GPIO 9 (SCL)**. By default the BME688 uses a **second I2C bus** on **GPIO 17 (SDA)** and **GPIO 18 (SCL)** so each sensor can use its own dupont wires (`BME688_SEPARATE_I2C_BUS` in `config.h`). GPS uses UART **15/16**; cancel button **GPIO 4**; see **PINOUT.md** for the full map.
 
 ## Web app
 

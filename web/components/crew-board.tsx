@@ -7,7 +7,7 @@ import { ageLabel, fmt } from "@/lib/format";
 import { co2Cue, fallNeedsReview, linkState, type NormalizedTelemetry } from "@/lib/telemetry-core";
 import { useBoard } from "./board-provider";
 import { Icon } from "./icons";
-import { Badge, EmptyState, PageHeader } from "./ui";
+import { Badge, EmptyState, PageHeader, SensorStatus } from "./ui";
 
 type Filter = "all" | "review" | "live" | "stale";
 
@@ -119,6 +119,7 @@ export function CrewBoard() {
                 </span>
               </div>
               {person.simulated ? <Badge tone="sim">Simulated</Badge> : null}
+              <SensorStatus scd40={person.scd40.installed} bme688={person.bme688.installed} />
               <div className="stat-line">
                 <span>
                   CO₂ <b>{fmt(person.scd40.co2_ppm, 0)}</b>
@@ -128,6 +129,24 @@ export function CrewBoard() {
                   HR <b>{fmt(person.max30102.heart_rate_bpm, 0)}</b>
                 </span>
               </div>
+              <dl className="bme-grid">
+                <div>
+                  <dt>BME temp</dt>
+                  <dd>{fmt(person.bme688.temperature_c, 1, " °C")}</dd>
+                </div>
+                <div>
+                  <dt>BME humidity</dt>
+                  <dd>{fmt(person.bme688.humidity_rh, 0, "%")}</dd>
+                </div>
+                <div>
+                  <dt>Pressure</dt>
+                  <dd>{fmt(person.bme688.pressure_hpa, 0, " hPa")}</dd>
+                </div>
+                <div>
+                  <dt>Gas</dt>
+                  <dd>{fmt(person.bme688.gas_resistance_ohm, 0, " Ω")}</dd>
+                </div>
+              </dl>
               <p className="person-meta">{ageLabel(person.received_at, now)}</p>
             </Link>
           );

@@ -43,13 +43,9 @@ def pick_gateway_port() -> str:
     raise SystemExit("No ESP32 COM port found. Pass it explicitly, e.g. python serial-bridge.py COM5")
 
 
-def load_router() -> tuple[str, str] | None:
-    try:
-        data = json.loads(NETWORK_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    ssid = str(data.get("ssid") or "").strip()
-    password = data.get("password")
+def credentials_from(source: dict) -> tuple[str, str] | None:
+    ssid = str(source.get("ssid") or "").strip()
+    password = source.get("password")
     if not isinstance(password, str):
         password = ""
     if not ssid or len(ssid) > 32 or len(password) > 63:
@@ -57,6 +53,59 @@ def load_router() -> tuple[str, str] | None:
     if any(ch in ssid or ch in password for ch in "\t\r\n"):
         return None
     return ssid, password
+
+
+def load_router() -> tuple[str, str] | None:
+    try:
+        data = json.loads(NETWORK_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    active = data.get("active")
+    profile = data.get(active) if active in ("router", "hotspot") else None
+    if isinstance(profile, dict):
+        chosen = credentials_from(profile)
+        if chosen is not None:
+            return chosen
+    return credentials_from(data)
+
+
+def wearable_ports(gateway: str) -> list[str]:
+    found: list[str] = []
+    for port in list_ports.comports():
+        hwid = port.hwid.upper().replace(" ", "")
+        if "VID:PID=303A:1001" not in hwid:
+            continue
+        if port.device.upper() == gateway.upper():
+            continue
+        found.append(port.device)
+    return found
+
+
+def push_wearable(gateway: str, creds: tuple[str, str], state: dict) -> None:
+    if state.get("wearable_last") == creds:
+        return
+    ports = wearable_ports(gateway)
+    if not ports:
+        return
+    line = f"wifi\t{creds[0]}\t{creds[1]}\n".encode("utf-8")
+    for device in ports:
+        wearable = serial.Serial()
+        wearable.port = device
+        wearable.baudrate = BAUD
+        wearable.timeout = 0.2
+        wearable.dtr = False
+        wearable.rts = False
+        try:
+            wearable.open()
+            wearable.write(line)
+            wearable.close()
+        except serial.SerialException as exc:
+            print(f"wearable {device} not updated: {exc}", flush=True)
+            continue
+        print(f"sent wearable {device} {creds[0]}", flush=True)
+        state["wearable_last"] = creds
 
 
 def push_router(ser: serial.Serial, state: dict) -> None:
@@ -72,6 +121,7 @@ def push_router(ser: serial.Serial, state: dict) -> None:
         print(f"sent router {creds[0]}", flush=True)
         state["last"] = creds
         state["pushes"] += 1
+        push_wearable(ser.port, creds, state)
 
 
 def post_json(url: str, payload: dict) -> int:

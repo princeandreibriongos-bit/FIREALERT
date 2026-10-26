@@ -68,8 +68,8 @@ static bool initEspNow() {
   return true;
 }
 
-static void applyFloat(float &dst, bool ok, float value) {
-  dst = ok ? value : NAN;
+static void applyFloat(float *dst, bool ok, float value) {
+  if (dst) *dst = ok ? value : NAN;
 }
 
 static void fillPacket(TelemetryPacket &packet, const WearableReadings &in) {
@@ -80,21 +80,21 @@ static void fillPacket(TelemetryPacket &packet, const WearableReadings &in) {
   packet.fall_state = in.fall_state;
   strncpy(packet.wearer_id, DEVICE_ID, sizeof(packet.wearer_id) - 1);
 
-  applyFloat(packet.co2_ppm, in.scd40, in.co2_ppm);
-  applyFloat(packet.scd40_temperature_c, in.scd40, in.scd40_temperature_c);
-  applyFloat(packet.scd40_humidity_rh, in.scd40, in.scd40_humidity_rh);
-  applyFloat(packet.bme_temperature_c, in.bme688, in.bme_temperature_c);
-  applyFloat(packet.bme_humidity_rh, in.bme688, in.bme_humidity_rh);
-  applyFloat(packet.pressure_hpa, in.bme688, in.pressure_hpa);
-  applyFloat(packet.gas_resistance_ohm, in.bme688, in.gas_resistance_ohm);
-  applyFloat(packet.heart_rate_bpm, in.max30102, in.heart_rate_bpm);
-  applyFloat(packet.spo2_percent, in.max30102, in.spo2_percent);
-  applyFloat(packet.accel_x, in.mpu6050, in.accel_x);
-  applyFloat(packet.accel_y, in.mpu6050, in.accel_y);
-  applyFloat(packet.accel_z, in.mpu6050, in.accel_z);
-  applyFloat(packet.gyro_x, in.mpu6050, in.gyro_x);
-  applyFloat(packet.gyro_y, in.mpu6050, in.gyro_y);
-  applyFloat(packet.gyro_z, in.mpu6050, in.gyro_z);
+  applyFloat(&packet.co2_ppm, in.scd40, in.co2_ppm);
+  applyFloat(&packet.scd40_temperature_c, in.scd40, in.scd40_temperature_c);
+  applyFloat(&packet.scd40_humidity_rh, in.scd40, in.scd40_humidity_rh);
+  applyFloat(&packet.bme_temperature_c, in.bme688, in.bme_temperature_c);
+  applyFloat(&packet.bme_humidity_rh, in.bme688, in.bme_humidity_rh);
+  applyFloat(&packet.pressure_hpa, in.bme688, in.pressure_hpa);
+  applyFloat(&packet.gas_resistance_ohm, in.bme688, in.gas_resistance_ohm);
+  applyFloat(&packet.heart_rate_bpm, in.max30102, in.heart_rate_bpm);
+  applyFloat(&packet.spo2_percent, in.max30102, in.spo2_percent);
+  applyFloat(&packet.accel_x, in.mpu6050, in.accel_x);
+  applyFloat(&packet.accel_y, in.mpu6050, in.accel_y);
+  applyFloat(&packet.accel_z, in.mpu6050, in.accel_z);
+  applyFloat(&packet.gyro_x, in.mpu6050, in.gyro_x);
+  applyFloat(&packet.gyro_y, in.mpu6050, in.gyro_y);
+  applyFloat(&packet.gyro_z, in.mpu6050, in.gyro_z);
 
   packet.latitude_e7 = (in.gps_fix || in.gps_last_known) ? in.latitude_e7 : GPS_COORD_ABSENT;
   packet.longitude_e7 = (in.gps_fix || in.gps_last_known) ? in.longitude_e7 : GPS_COORD_ABSENT;
@@ -142,6 +142,12 @@ void loop() {
   if (readings.scd40) {
     Serial.printf("[node-a] SCD40 CO2=%.0f ppm T=%.2f C RH=%.1f %%\n", readings.co2_ppm,
                   readings.scd40_temperature_c, readings.scd40_humidity_rh);
+  }
+  if (readings.bme688) {
+    Serial.printf("[node-a] BME688 T=%.2f C RH=%.1f %% P=%.0f hPa gas=%.0f ohm\n", readings.bme_temperature_c,
+                  readings.bme_humidity_rh, readings.pressure_hpa, readings.gas_resistance_ohm);
+  } else {
+    Serial.println("[node-a] BME688 no reading");
   }
 
   const esp_err_t sendResult =

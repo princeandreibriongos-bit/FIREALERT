@@ -25,13 +25,19 @@ static constexpr int I2C_SCL_PIN = 9;
 static constexpr uint32_t I2C_FREQUENCY_HZ = 100000;
 
 static constexpr uint8_t SCD40_I2C_ADDR = 0x62;     // CO2, sensor temperature, humidity
-static constexpr uint8_t BME688_I2C_ADDR = 0x77;    // device air, pressure, gas — not CO2
+// SDO → 3V3 gives 0x77; SDO → GND gives 0x76.
+static constexpr uint8_t BME688_I2C_ADDR = 0x77;
+static constexpr uint8_t BME688_I2C_ADDR_ALT = 0x76;
+// Dupont wiring: SCD40 keeps GPIO 8/9. BME688 uses its own pair.
+static constexpr bool BME688_SEPARATE_I2C_BUS = true;
+static constexpr int BME688_I2C_SDA_PIN = 17;
+static constexpr int BME688_I2C_SCL_PIN = 18;
 static constexpr uint8_t MAX30102_I2C_ADDR = 0x57;  // heart rate, estimated SpO2 — not clinical
 static constexpr uint8_t MPU6050_I2C_ADDR = 0x68;   // accel + gyro for the fall model
 
 // Set true only after that module is soldered and the matching driver is linked.
 static constexpr bool SCD40_ENABLED = true;
-static constexpr bool BME688_ENABLED = false;
+static constexpr bool BME688_ENABLED = true;
 static constexpr bool MAX30102_ENABLED = false;
 static constexpr bool MPU6050_ENABLED = false;
 
