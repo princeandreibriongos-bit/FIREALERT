@@ -28,19 +28,25 @@ BAUD = 115200
 NETWORK_PATH = Path(__file__).resolve().parent / "data" / "network.json"
 
 
+PORT_HINTS = ("303A:1001", "303A", "1A86", "10C4", "0403")
+
+
 def pick_gateway_port() -> str:
     if len(sys.argv) > 1:
         return sys.argv[1]
-    for port in list_ports.comports():
-        desc = f"{port.device} {port.description} {port.hwid}"
-        # Node B enumerates as Espressif USB Serial/JTAG (PID 1001).
-        if "VID:PID=303A:1001" in port.hwid.upper().replace(" ", ""):
-            if port.device.upper() == "COM5":
-                return port.device
-    for port in list_ports.comports():
-        if "303A" in port.hwid.upper():
-            return port.device
-    raise SystemExit("No ESP32 COM port found. Pass it explicitly, e.g. python serial-bridge.py COM5")
+    ports = list(list_ports.comports())
+
+    def rank(port: serial.tools.list_ports.ListPortInfo) -> int:
+        hwid = port.hwid.upper().replace(" ", "")
+        for index, hint in enumerate(PORT_HINTS):
+            if hint in hwid:
+                return index
+        return len(PORT_HINTS)
+
+    ranked = sorted(ports, key=rank)
+    if ranked and rank(ranked[0]) < len(PORT_HINTS):
+        return ranked[0].device
+    raise SystemExit("No ESP32 COM port found. Plug in the gateway, then run npm run bridge again.")
 
 
 def credentials_from(source: dict) -> tuple[str, str] | None:

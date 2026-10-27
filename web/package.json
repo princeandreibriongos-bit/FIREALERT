@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0 --port 3000",
-    "bridge": "python serial-bridge.py COM5",
+    "bridge": "node run-bridge.mjs",
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "build": "next build",
     "start": "next start --hostname 0.0.0.0 --port 3000"
