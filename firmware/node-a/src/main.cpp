@@ -95,6 +95,7 @@ static void fillPacket(TelemetryPacket &packet, const WearableReadings &in) {
   applyFloat(&packet.gyro_x, in.mpu6050, in.gyro_x);
   applyFloat(&packet.gyro_y, in.mpu6050, in.gyro_y);
   applyFloat(&packet.gyro_z, in.mpu6050, in.gyro_z);
+  packet.mq6_raw = in.mq6 ? in.mq6_raw : MQ6_RAW_ABSENT;
 
   packet.latitude_e7 = (in.gps_fix || in.gps_last_known) ? in.latitude_e7 : GPS_COORD_ABSENT;
   packet.longitude_e7 = (in.gps_fix || in.gps_last_known) ? in.longitude_e7 : GPS_COORD_ABSENT;
@@ -108,6 +109,7 @@ static void fillPacket(TelemetryPacket &packet, const WearableReadings &in) {
   if (in.bme688) packet.flags |= FLAG_BME688_OK;
   if (in.max30102) packet.flags |= FLAG_MAX30102_OK;
   if (in.mpu6050) packet.flags |= FLAG_MPU6050_OK;
+  if (in.mq6) packet.flags |= FLAG_MQ6_OK;
   if (in.gps_fix) packet.flags |= FLAG_GPS_FIX;
   if (in.gps_last_known) packet.flags |= FLAG_GPS_LAST_KNOWN;
   if (in.battery) packet.flags |= FLAG_BATTERY_OK;
@@ -148,6 +150,17 @@ void loop() {
                   readings.bme_humidity_rh, readings.pressure_hpa, readings.gas_resistance_ohm);
   } else {
     Serial.println("[node-a] BME688 no reading");
+  }
+  if (readings.mpu6050) {
+    Serial.printf("[node-a] MPU-6050 g=%.2f %.2f %.2f dps=%.1f %.1f %.1f\n", readings.accel_x, readings.accel_y,
+                  readings.accel_z, readings.gyro_x, readings.gyro_y, readings.gyro_z);
+  } else {
+    Serial.println("[node-a] MPU-6050 no reading");
+  }
+  if (readings.mq6) {
+    Serial.printf("[node-a] MQ-6 raw=%u\n", readings.mq6_raw);
+  } else {
+    Serial.println("[node-a] MQ-6 no reading");
   }
 
   const esp_err_t sendResult =

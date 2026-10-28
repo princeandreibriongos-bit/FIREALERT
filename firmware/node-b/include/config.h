@@ -16,6 +16,9 @@ static constexpr const char *TELEMETRY_URL = "http://192.168.1.13:3000/api/telem
 
 static constexpr const char *GATEWAY_ID = "node-b";
 static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000;
+// Same fallback the wearable uses when it cannot join Wi-Fi. ESP-NOW only
+// works when both radios are on this channel.
+static constexpr uint8_t WIFI_CHANNEL = 9;
 static constexpr uint32_t HTTP_TIMEOUT_MS = 8000;
 
 // These match the wearable. The gateway reports them so the dashboard does

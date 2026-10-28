@@ -23,6 +23,9 @@ static constexpr uint32_t SAMPLE_INTERVAL_MS = 5000;
 static constexpr int I2C_SDA_PIN = 8;
 static constexpr int I2C_SCL_PIN = 9;
 static constexpr uint32_t I2C_FREQUENCY_HZ = 100000;
+// SCD40 and MPU-6050 share this bus. 50 kHz is within the SCD40 limit and
+// gives the motion chip a cleaner register write than 100 kHz.
+static constexpr uint32_t SHARED_I2C_HZ = 50000;
 
 static constexpr uint8_t SCD40_I2C_ADDR = 0x62;     // CO2, sensor temperature, humidity
 // SDO → 3V3 gives 0x77; SDO → GND gives 0x76.
@@ -39,7 +42,12 @@ static constexpr uint8_t MPU6050_I2C_ADDR = 0x68;   // accel + gyro for the fall
 static constexpr bool SCD40_ENABLED = true;
 static constexpr bool BME688_ENABLED = true;
 static constexpr bool MAX30102_ENABLED = false;
-static constexpr bool MPU6050_ENABLED = false;
+static constexpr bool MPU6050_ENABLED = true;
+
+// MQ-6 heater uses the devkit 5V pin. AO reaches GPIO 1 through two 10 kΩ
+// resistors so the pin stays at or below 2.5 V. The count is relative, not %LEL.
+static constexpr bool MQ6_ENABLED = true;
+static constexpr int MQ6_ADC_PIN = 1;
 
 // --- GPS (not installed) ---------------------------------------------------
 // Last-known coordinates must never be labeled as the current position.

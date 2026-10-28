@@ -17,6 +17,17 @@ static Adafruit_BME680 g_bme688(&g_bme688Wire);
 static WifiCreds g_wifi = {};
 static bool g_scd40Ready = false;
 static bool g_bme688Ready = false;
+static bool g_mpu6050Ready = false;
+static uint8_t g_mpuAddr = MPU6050_I2C_ADDR;
+static bool g_haveScd = false;
+static float g_lastCo2 = NAN;
+static float g_lastScdT = NAN;
+static float g_lastScdRh = NAN;
+static uint8_t g_scdErrors = 0;
+static bool g_haveMpu = false;
+static float g_lastAx = NAN, g_lastAy = NAN, g_lastAz = NAN;
+static float g_lastGx = NAN, g_lastGy = NAN, g_lastGz = NAN;
+static uint32_t g_mpuMs = 0;
 static FallState g_fall = FALL_IDLE;
 static uint32_t g_graceStartMs = 0;
 
@@ -47,6 +58,29 @@ static void rememberWifi(const char *ssid, const char *password) {
 
 static void scanI2C(TwoWire &bus, int sda, int scl, const char *label);
 static void runSensorScan();
+
+// A shorted or clock-stretched line makes Wire.endTransmission() wait forever
+// on this core. Clock the bus, then refuse to start I2C if a line is still low.
+static bool i2cLinesIdle(int sda, int scl, const char *label) {
+  pinMode(sda, INPUT_PULLUP);
+  pinMode(scl, OUTPUT_OPEN_DRAIN);
+  digitalWrite(scl, HIGH);
+  delay(1);
+  for (int pulse = 0; pulse < 9; ++pulse) {
+    if (digitalRead(sda) == HIGH) break;
+    digitalWrite(scl, LOW);
+    delayMicroseconds(8);
+    digitalWrite(scl, HIGH);
+    delayMicroseconds(8);
+  }
+  pinMode(scl, INPUT_PULLUP);
+  delay(2);
+  const int sdaLevel = digitalRead(sda);
+  const int sclLevel = digitalRead(scl);
+  if (sdaLevel == HIGH && sclLevel == HIGH) return true;
+  Serial.printf("[node-a] %s bus held down SDA=%d SCL=%d — check the jumpers\n", label, sdaLevel, sclLevel);
+  return false;
+}
 
 static bool pollFallCommand() {
   static char line[128];
@@ -156,13 +190,35 @@ static bool beginScd40() {
   return true;
 }
 
+static void publishLastScd(WearableReadings &out) {
+  if (!g_haveScd) return;
+  out.scd40 = true;
+  out.co2_ppm = g_lastCo2;
+  out.scd40_temperature_c = g_lastScdT;
+  out.scd40_humidity_rh = g_lastScdRh;
+}
+
 static void readScd40(WearableReadings &out) {
-  if (!g_scd40Ready) {
-    return;
-  }
+  if (!g_scd40Ready) return;
+  // SCD40 stretches the clock while it answers. A short timeout looks like a missing sensor.
+  Wire.setTimeOut(200);
   bool dataReady = false;
   int16_t error = g_scd4x.getDataReadyStatus(dataReady);
-  if (error || !dataReady) {
+  if (error) {
+    if (++g_scdErrors >= 3) {
+      g_scd4x.stopPeriodicMeasurement();
+      delay(500);
+      g_scd4x.reinit();
+      g_scd4x.startPeriodicMeasurement();
+      g_scdErrors = 0;
+      Serial.println("[node-a] SCD40 measurement restarted");
+    }
+    publishLastScd(out);
+    return;
+  }
+  g_scdErrors = 0;
+  if (!dataReady) {
+    publishLastScd(out);
     return;
   }
   uint16_t co2 = 0;
@@ -170,12 +226,14 @@ static void readScd40(WearableReadings &out) {
   float humidity = NAN;
   error = g_scd4x.readMeasurement(co2, temperature, humidity);
   if (error || co2 == 0) {
+    publishLastScd(out);
     return;
   }
-  out.scd40 = true;
-  out.co2_ppm = static_cast<float>(co2);
-  out.scd40_temperature_c = temperature;
-  out.scd40_humidity_rh = humidity;
+  g_haveScd = true;
+  g_lastCo2 = static_cast<float>(co2);
+  g_lastScdT = temperature;
+  g_lastScdRh = humidity;
+  publishLastScd(out);
 }
 
 static void configureBme688() {
@@ -220,10 +278,126 @@ static void readMax30102(WearableReadings &) {
   }
 }
 
-static void readMpu6050(WearableReadings &) {
-  if (MPU6050_ENABLED) {
-    Serial.println("[node-a] MPU-6050 flag is on but the driver is not linked");
+static bool mpuWrite(uint8_t reg, uint8_t value) {
+  Wire.beginTransmission(g_mpuAddr);
+  Wire.write(reg);
+  Wire.write(value);
+  return Wire.endTransmission() == 0;
+}
+
+static int16_t mpuRead16() {
+  const int hi = Wire.read();
+  const int lo = Wire.read();
+  return static_cast<int16_t>((hi << 8) | (lo & 0xFF));
+}
+
+static bool mpuWhoAmI(uint8_t addr, uint8_t &who) {
+  Wire.setClock(SHARED_I2C_HZ);
+  Wire.setTimeOut(100);
+  Wire.beginTransmission(addr);
+  Wire.write(0x75);
+  const uint8_t tx = Wire.endTransmission(true);
+  if (tx != 0) {
+    Serial.printf("[node-a] MPU-6050 0x%02X write err %u\n", addr, tx);
+    return false;
   }
+  delay(2);
+  const uint8_t got = Wire.requestFrom(addr, static_cast<uint8_t>(1), static_cast<uint8_t>(true));
+  if (got != 1) {
+    Serial.printf("[node-a] MPU-6050 0x%02X whoami bytes %u\n", addr, got);
+    return false;
+  }
+  who = static_cast<uint8_t>(Wire.read());
+  Serial.printf("[node-a] MPU-6050 0x%02X whoami 0x%02X\n", addr, who);
+  return who == 0x68 || who == 0x70 || who == 0x71 || who == 0x98;
+}
+
+static bool beginMpu6050(bool restartBus) {
+  if (!MPU6050_ENABLED) return false;
+  if (restartBus) Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, SHARED_I2C_HZ);
+  Wire.setClock(SHARED_I2C_HZ);
+  delay(20);
+  const uint8_t candidates[] = {MPU6050_I2C_ADDR, 0x69};
+  for (int attempt = 0; attempt < 4; ++attempt) {
+    for (uint8_t addr : candidates) {
+      uint8_t who = 0;
+      if (!mpuWhoAmI(addr, who)) continue;
+      g_mpuAddr = addr;
+      if (!mpuWrite(0x6B, 0x00)) {
+        Serial.println("[node-a] MPU-6050 wake failed");
+        continue;
+      }
+      delay(10);
+      mpuWrite(0x1B, 0x00);
+      mpuWrite(0x1C, 0x00);
+      Serial.printf("[node-a] MPU-6050 ready at 0x%02X\n", addr);
+      return true;
+    }
+    delay(15);
+  }
+  Serial.println("[node-a] MPU-6050 not found");
+  return false;
+}
+
+static void publishLastMpu(WearableReadings &out) {
+  if (!g_haveMpu || millis() - g_mpuMs > 20000) return;
+  out.mpu6050 = true;
+  out.accel_x = g_lastAx;
+  out.accel_y = g_lastAy;
+  out.accel_z = g_lastAz;
+  out.gyro_x = g_lastGx;
+  out.gyro_y = g_lastGy;
+  out.gyro_z = g_lastGz;
+}
+
+static bool readMpuSample(WearableReadings &out) {
+  Wire.setClock(SHARED_I2C_HZ);
+  Wire.setTimeOut(50);
+  Wire.beginTransmission(g_mpuAddr);
+  Wire.write(0x3B);
+  if (Wire.endTransmission(false) != 0) return false;
+  if (Wire.requestFrom(g_mpuAddr, static_cast<uint8_t>(14)) != 14) return false;
+  const int16_t ax = mpuRead16();
+  const int16_t ay = mpuRead16();
+  const int16_t az = mpuRead16();
+  mpuRead16();
+  const int16_t gx = mpuRead16();
+  const int16_t gy = mpuRead16();
+  const int16_t gz = mpuRead16();
+  out.mpu6050 = true;
+  out.accel_x = static_cast<float>(ax) / 16384.0f;
+  out.accel_y = static_cast<float>(ay) / 16384.0f;
+  out.accel_z = static_cast<float>(az) / 16384.0f;
+  out.gyro_x = static_cast<float>(gx) / 131.0f;
+  out.gyro_y = static_cast<float>(gy) / 131.0f;
+  out.gyro_z = static_cast<float>(gz) / 131.0f;
+  g_haveMpu = true;
+  g_lastAx = out.accel_x;
+  g_lastAy = out.accel_y;
+  g_lastAz = out.accel_z;
+  g_lastGx = out.gyro_x;
+  g_lastGy = out.gyro_y;
+  g_lastGz = out.gyro_z;
+  g_mpuMs = millis();
+  return true;
+}
+
+static void readMpu6050(WearableReadings &out) {
+  if (!g_mpu6050Ready) return;
+  for (int attempt = 0; attempt < 3; ++attempt) {
+    if (readMpuSample(out)) return;
+    delay(5);
+  }
+  publishLastMpu(out);
+  if (!out.mpu6050) Serial.println("[node-a] MPU-6050 read missed");
+}
+
+static void readMq6(WearableReadings &out) {
+  if (!MQ6_ENABLED) return;
+  const int raw = analogRead(MQ6_ADC_PIN);
+  if (raw < 0 || raw > 4095) return;
+  out.mq6 = true;
+  out.mq6_raw = static_cast<uint16_t>(raw);
 }
 
 static void readGps(WearableReadings &out) {
@@ -257,7 +431,8 @@ static void readBattery(WearableReadings &out) {
 static void runSensorScan() {
   scanI2C(Wire, I2C_SDA_PIN, I2C_SCL_PIN, "SCD40 bus");
   scanI2C(g_bme688Wire, BME688_I2C_SDA_PIN, BME688_I2C_SCL_PIN, "BME688 bus");
-  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_FREQUENCY_HZ);
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, SHARED_I2C_HZ);
+  Wire.setClock(SHARED_I2C_HZ);
 }
 
 static void scanI2C(TwoWire &bus, int sda, int scl, const char *label) {
@@ -286,7 +461,6 @@ void featuresBegin() {
     Serial.println("[node-a] no router yet — enter it on the dashboard");
   }
 
-  runSensorScan();
   if (CANCEL_BUTTON_ENABLED) {
     pinMode(CANCEL_BUTTON_PIN, INPUT_PULLUP);
   }
@@ -295,8 +469,19 @@ void featuresBegin() {
     digitalWrite(BUZZER_PIN, LOW);
   }
 
-  g_scd40Ready = beginScd40();
-  g_bme688Ready = beginBme688();
+  if (i2cLinesIdle(I2C_SDA_PIN, I2C_SCL_PIN, "GPIO 8/9")) {
+    g_mpu6050Ready = beginMpu6050(true);
+    g_scd40Ready = beginScd40();
+  }
+  if (i2cLinesIdle(BME688_I2C_SDA_PIN, BME688_I2C_SCL_PIN, "GPIO 17/18")) {
+    g_bme688Ready = beginBme688();
+  }
+  if (MQ6_ENABLED) {
+    analogReadResolution(12);
+    analogSetPinAttenuation(MQ6_ADC_PIN, ADC_11db);
+    pinMode(MQ6_ADC_PIN, INPUT);
+    Serial.printf("[node-a] MQ-6 ADC GPIO %d\n", MQ6_ADC_PIN);
+  }
   Serial.printf("[node-a] placeholders bme=%d max30102=%d mpu=%d gps=%d battery=%d screen=%d buzzer=%d ecdsa=%d model=%s\n",
                 BME688_ENABLED, MAX30102_ENABLED, MPU6050_ENABLED, GPS_ENABLED, BATTERY_SENSE_ENABLED,
                 TOUCHSCREEN_INSTALLED, BUZZER_INSTALLED, ECDSA_SIGNING_ENABLED, FALL_MODEL_ID);
@@ -316,6 +501,7 @@ void featuresRead(WearableReadings &out) {
   out.spo2_percent = NAN;
   out.accel_x = out.accel_y = out.accel_z = NAN;
   out.gyro_x = out.gyro_y = out.gyro_z = NAN;
+  out.mq6_raw = MQ6_RAW_ABSENT;
   out.latitude_e7 = GPS_COORD_ABSENT;
   out.longitude_e7 = GPS_COORD_ABSENT;
   out.altitude_dm = GPS_ALT_ABSENT;
@@ -323,9 +509,10 @@ void featuresRead(WearableReadings &out) {
   out.battery_percent = BATTERY_PERCENT_ABSENT;
 
   readScd40(out);
+  readMpu6050(out);
   readBme688(out);
   readMax30102(out);
-  readMpu6050(out);
+  readMq6(out);
   readGps(out);
   readBattery(out);
   tickFall(out);

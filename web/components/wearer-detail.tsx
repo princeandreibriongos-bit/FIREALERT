@@ -159,7 +159,12 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
               <p>{fallCopy(packet)}</p>
               <p className="fine">Open Motion for acceleration and the model slot.</p>
             </div>
-            <SensorStatus scd40={packet.scd40.installed} bme688={packet.bme688.installed} />
+            <SensorStatus
+              scd40={packet.scd40.installed}
+              bme688={packet.bme688.installed}
+              mpu6050={packet.mpu6050.installed}
+              mq6={packet.mq6.installed}
+            />
             <div className={`callout ${air.tone === "alert" ? "is-alert" : air.tone === "warn" ? "is-warn" : "is-ok"}`}>
               <p>{air.title}</p>
               <p className="fine">{air.detail}</p>
@@ -216,7 +221,12 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
 
         {tab === "environment" ? (
           <div role="tabpanel">
-            <SensorStatus scd40={packet.scd40.installed} bme688={packet.bme688.installed} />
+            <SensorStatus
+              scd40={packet.scd40.installed}
+              bme688={packet.bme688.installed}
+              mpu6050={packet.mpu6050.installed}
+              mq6={packet.mq6.installed}
+            />
             <div className={`callout ${air.tone === "alert" ? "is-alert" : air.tone === "warn" ? "is-warn" : "is-ok"}`}>
               <p>{air.title}</p>
               <p className="fine">{air.detail}</p>
@@ -241,6 +251,11 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
               <Metric label="BME688 humidity" value={fmt(packet.bme688.humidity_rh, 0, "%")} />
               <Metric label="Pressure" value={fmt(packet.bme688.pressure_hpa, 0, " hPa")} />
               <Metric label="Gas resistance" value={fmt(packet.bme688.gas_resistance_ohm, 0, " Ω")} detail="Not a CO reading" />
+              <Metric
+                label="MQ-6"
+                value={packet.mq6.installed ? fmt(packet.mq6.raw, 0) : "—"}
+                detail={packet.mq6.installed ? "Relative level, not %LEL" : "Awaiting hardware · GPIO 1"}
+              />
             </div>
           </div>
         ) : null}
@@ -254,6 +269,9 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
               </div>
               {hardwareBadge(packet.mpu6050.installed, packet.mpu6050.accel_g != null)}
             </div>
+            {packet.mpu6050.installed ? null : (
+              <p className="fine">MPU-6050 is not answering on GPIO 8 and 9.</p>
+            )}
             <div className="metrics">
               <Metric label="Accel g  x y z" value={vecText(packet.mpu6050.accel_g)} />
               <Metric label="Gyro dps  x y z" value={vecText(packet.mpu6050.gyro_dps)} />

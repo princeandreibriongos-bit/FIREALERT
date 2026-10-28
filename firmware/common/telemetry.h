@@ -17,6 +17,7 @@ static constexpr int32_t GPS_COORD_ABSENT = INT32_MIN;
 static constexpr int16_t GPS_ALT_ABSENT = INT16_MIN;
 static constexpr uint8_t BATTERY_PERCENT_ABSENT = 255;
 static constexpr uint8_t GPS_SATELLITES_ABSENT = 255;
+static constexpr uint16_t MQ6_RAW_ABSENT = 0xFFFF;
 
 enum TelemetryFlags : uint32_t {
   FLAG_SCD40_OK = 1u << 0,
@@ -30,6 +31,7 @@ enum TelemetryFlags : uint32_t {
   FLAG_DISTRESS = 1u << 8,
   FLAG_SIGNED = 1u << 9,
   FLAG_UPLINK_CELLULAR = 1u << 10,
+  FLAG_MQ6_OK = 1u << 11,
 };
 
 enum FallState : uint8_t {
@@ -92,9 +94,12 @@ struct TelemetryPacket {
 
   uint8_t signature_len;
   uint8_t signature[64];
+
+  // After the signed prefix so older signature checks keep the same offset.
+  uint16_t mq6_raw;
 } __attribute__((packed));
 
 static_assert(sizeof(TelemetryPacketV1) == TELEMETRY_V1_SIZE, "v1 packet size drifted");
 static_assert(sizeof(TelemetryPacket) <= 250, "ESP-NOW payload exceeds 250 bytes");
-static_assert(sizeof(TelemetryPacket) == 160, "v2 packet size drifted");
+static_assert(sizeof(TelemetryPacket) == 162, "v2 packet size drifted");
 static_assert(offsetof(TelemetryPacket, signature_len) == 95, "signed prefix drifted");

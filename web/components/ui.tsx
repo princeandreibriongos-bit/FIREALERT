@@ -47,9 +47,13 @@ export function Metric({
 export function SensorStatus({
   scd40,
   bme688,
+  mpu6050 = false,
+  mq6 = false,
 }: {
   scd40: boolean;
   bme688: boolean;
+  mpu6050?: boolean;
+  mq6?: boolean;
 }) {
   return (
     <div className="sensor-row" aria-label="Sensor status">
@@ -60,6 +64,14 @@ export function SensorStatus({
       <span className={`sensor-pill${bme688 ? " is-on" : ""}`}>
         <i aria-hidden />
         BME688 {bme688 ? "detected" : "not detected"}
+      </span>
+      <span className={`sensor-pill${mpu6050 ? " is-on" : ""}`}>
+        <i aria-hidden />
+        MPU-6050 {mpu6050 ? "detected" : "not detected"}
+      </span>
+      <span className={`sensor-pill${mq6 ? " is-on" : ""}`}>
+        <i aria-hidden />
+        MQ-6 {mq6 ? "detected" : "not detected"}
       </span>
     </div>
   );

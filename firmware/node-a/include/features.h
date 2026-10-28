@@ -24,6 +24,9 @@ struct WearableReadings {
   float accel_x, accel_y, accel_z;
   float gyro_x, gyro_y, gyro_z;
 
+  bool mq6;
+  uint16_t mq6_raw;
+
   bool gps_fix;
   bool gps_last_known;
   int32_t latitude_e7;

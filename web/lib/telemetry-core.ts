@@ -45,6 +45,10 @@ export type RawTelemetry = {
     accel_g?: { x?: number | null; y?: number | null; z?: number | null } | null;
     gyro_dps?: { x?: number | null; y?: number | null; z?: number | null } | null;
   };
+  mq6?: {
+    ok?: boolean;
+    raw?: number | null;
+  };
   gps?: {
     ok?: boolean;
     fix?: string;
@@ -83,6 +87,7 @@ export type NormalizedTelemetry = {
   };
   scd40: { installed: boolean; co2_ppm: number | null; temperature_c: number | null; humidity_rh: number | null };
   mpu6050: { installed: boolean; accel_g: Vec3 | null; gyro_dps: Vec3 | null };
+  mq6: { installed: boolean; raw: number | null };
   gps: {
     state: GpsState;
     latitude: number | null;
@@ -169,6 +174,7 @@ export function normalizeTelemetry(
   const bme = isRecord(input.bme688) ? input.bme688 : {};
   const max = isRecord(input.max30102) ? input.max30102 : {};
   const mpu = isRecord(input.mpu6050) ? input.mpu6050 : {};
+  const mq6 = isRecord(input.mq6) ? input.mq6 : {};
   const battery = isRecord(input.battery) ? input.battery : {};
   const fall = isRecord(input.fall) ? input.fall : {};
   const ui = isRecord(input.local_ui) ? input.local_ui : {};
@@ -177,6 +183,7 @@ export function normalizeTelemetry(
   const bmeOn = bme.ok === true;
   const maxOn = max.ok === true;
   const mpuOn = mpu.ok === true;
+  const mq6On = mq6.ok === true;
   const batteryOn = battery.ok === true;
   const mac = text(input.source_mac, 32);
   const fallRaw = text(fall.state, 20);
@@ -230,6 +237,10 @@ export function normalizeTelemetry(
       installed: mpuOn,
       accel_g: vec(mpu.accel_g, mpuOn),
       gyro_dps: vec(mpu.gyro_dps, mpuOn),
+    },
+    mq6: {
+      installed: mq6On,
+      raw: installedReading(mq6On, mq6.raw),
     },
     gps: gpsOf(input.gps),
     fall: {

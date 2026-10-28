@@ -13,6 +13,7 @@ export function buildSampleCrew(now = Date.now()): { raw: RawTelemetry; received
     max30102: { ok: false, heart_rate_bpm: null, spo2_percent: null },
     bme688: { ok: false, temperature_c: null, humidity_rh: null, pressure_hpa: null, gas_resistance_ohm: null },
     mpu6050: { ok: false, accel_g: null, gyro_dps: null },
+    mq6: { ok: false, raw: null },
     local_ui: { touchscreen: "not_installed" as const, buzzer: "not_installed" as const },
     gps: { ok: false, fix: "none", latitude: null, longitude: null, altitude_m: null, satellites: null },
     fall: { state: "idle", model: "edge-impulse-placeholder", grace_remaining_ms: 0 },

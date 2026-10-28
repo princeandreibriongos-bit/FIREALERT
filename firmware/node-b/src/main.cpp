@@ -195,6 +195,10 @@ static void addEmptySensors(JsonDocument &doc) {
   mpu["accel_g"] = nullptr;
   mpu["gyro_dps"] = nullptr;
 
+  JsonObject mq6 = doc["mq6"].to<JsonObject>();
+  mq6["ok"] = false;
+  mq6["raw"] = nullptr;
+
   JsonObject gps = doc["gps"].to<JsonObject>();
   gps["ok"] = false;
   gps["fix"] = "none";
@@ -304,12 +308,13 @@ static void pollDashboardRouter() {
 
 static bool postDocument(JsonDocument &doc) {
   doc["router_ssid"] = g_wifi.ssid[0] ? g_wifi.ssid : nullptr;
+  String body;
+  serializeJson(doc, body);
+  // The USB bridge forwards this line even when the gateway Wi-Fi is down.
+  Serial.println(body);
   if (!ensureWifi() && !CELLULAR_MODEM_INSTALLED) {
     return false;
   }
-
-  String body;
-  serializeJson(doc, body);
 
   HTTPClient http;
   http.setTimeout(HTTP_TIMEOUT_MS);
@@ -321,7 +326,6 @@ static bool postDocument(JsonDocument &doc) {
   http.addHeader("X-Firealert-Gateway", GATEWAY_ID);
   const int status = http.POST(body);
   Serial.printf("[node-b] POST %s -> HTTP %d\n", TELEMETRY_URL, status);
-  Serial.println(body);
   http.end();
   return status >= 200 && status < 300;
 }
@@ -427,6 +431,15 @@ static bool postV2(const QueuedPacket &item) {
     appendNullableFloat(gyro, "x", packet.gyro_x);
     appendNullableFloat(gyro, "y", packet.gyro_y);
     appendNullableFloat(gyro, "z", packet.gyro_z);
+  }
+
+  JsonObject mq6 = doc["mq6"].to<JsonObject>();
+  const bool mqOk = (packet.flags & FLAG_MQ6_OK) != 0 && packet.mq6_raw != MQ6_RAW_ABSENT;
+  mq6["ok"] = mqOk;
+  if (mqOk) {
+    mq6["raw"] = packet.mq6_raw;
+  } else {
+    mq6["raw"] = nullptr;
   }
 
   JsonObject gps = doc["gps"].to<JsonObject>();

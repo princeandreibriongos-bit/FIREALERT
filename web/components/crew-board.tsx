@@ -120,7 +120,12 @@ export function CrewBoard() {
                 </span>
               </div>
               {person.simulated ? <Badge tone="sim">Simulated</Badge> : null}
-              <SensorStatus scd40={person.scd40.installed} bme688={person.bme688.installed} />
+              <SensorStatus
+                scd40={person.scd40.installed}
+                bme688={person.bme688.installed}
+                mpu6050={person.mpu6050.installed}
+                mq6={person.mq6.installed}
+              />
               <div className="stat-line">
                 <span>
                   CO₂ <b>{fmt(person.scd40.co2_ppm, 0)}</b>
@@ -147,6 +152,14 @@ export function CrewBoard() {
                 <div>
                   <dt>Gas</dt>
                   <dd>{fmt(person.bme688.gas_resistance_ohm, 0, " Ω")}</dd>
+                </div>
+                <div>
+                  <dt>MPU-6050</dt>
+                  <dd>{person.mpu6050.installed ? "detected" : "—"}</dd>
+                </div>
+                <div>
+                  <dt>MQ-6</dt>
+                  <dd>{person.mq6.installed ? fmt(person.mq6.raw, 0) : "—"}</dd>
                 </div>
               </dl>
               <p className="person-meta">{ageLabel(person.received_at, now)}</p>

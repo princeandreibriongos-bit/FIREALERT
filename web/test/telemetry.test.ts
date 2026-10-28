@@ -43,6 +43,9 @@ describe("telemetry", () => {
     assert.equal(entry.bme688.installed, false);
     assert.equal(entry.bme688.gas_resistance_ohm, null);
     assert.equal(entry.scd40.co2_ppm, 800);
+    assert.equal(entry.mpu6050.installed, false);
+    assert.equal(entry.mq6.installed, false);
+    assert.equal(entry.mq6.raw, null);
     assert.equal(entry.signature.status, "unsigned");
     assert.equal(entry.uplink, "wifi");
     assert.equal(entry.cellular_ready, false);
@@ -113,6 +116,16 @@ describe("telemetry", () => {
     assert.equal(combined.kind, "both");
     assert.match(combined.detail, /not a carbon monoxide or LPG reading/i);
     assert.match(combined.detail, /warm and humid/i);
+  });
+
+  it("keeps an MQ-6 reading only when the sensor reports ok", () => {
+    const missing = sample();
+    assert.equal(missing.mq6.installed, false);
+    const present = sample({ mq6: { ok: true, raw: 1800 } });
+    assert.equal(present.mq6.installed, true);
+    assert.equal(present.mq6.raw, 1800);
+    const ignored = sample({ mq6: { ok: false, raw: 1800 } });
+    assert.equal(ignored.mq6.raw, null);
   });
 
   it("rejects a non-object packet", () => {
