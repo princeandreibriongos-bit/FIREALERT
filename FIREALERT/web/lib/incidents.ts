@@ -1,3 +1,5 @@
+import { insertIncidentRow, listIncidentRows, updateIncidentStatus } from "./db";
+
 export type Incident = {
   id: string;
   title: string;
@@ -7,6 +9,7 @@ export type Incident = {
   longitude: number | null;
   status: "open" | "closed";
   created_at: string;
+  closed_at: string | null;
 };
 
 export type IncidentDraft = {
@@ -54,15 +57,8 @@ export function parseIncidentInput(body: unknown): { ok: true; value: IncidentDr
   return { ok: true, value: { title, address, notes, latitude, longitude } };
 }
 
-const globalStore = globalThis as typeof globalThis & { __firealertIncidents?: Incident[] };
-
-function incidents(): Incident[] {
-  if (!globalStore.__firealertIncidents) globalStore.__firealertIncidents = [];
-  return globalStore.__firealertIncidents;
-}
-
 export function listIncidents(): Incident[] {
-  return incidents();
+  return listIncidentRows();
 }
 
 export function addIncident(draft: IncidentDraft): Incident {
@@ -71,14 +67,13 @@ export function addIncident(draft: IncidentDraft): Incident {
     ...draft,
     status: "open",
     created_at: new Date().toISOString(),
+    closed_at: null,
   };
-  incidents().unshift(incident);
+  insertIncidentRow(incident);
   return incident;
 }
 
 export function setIncidentStatus(id: string, status: "open" | "closed"): Incident | null {
-  const incident = incidents().find((item) => item.id === id);
-  if (!incident) return null;
-  incident.status = status;
-  return incident;
+  const closedAt = status === "closed" ? new Date().toISOString() : null;
+  return updateIncidentStatus(id, status, closedAt);
 }

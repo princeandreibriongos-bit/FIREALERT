@@ -3,6 +3,7 @@
 Windows Firewall often blocks the ESP32 from POSTing to this PC.
 The gateway already prints each payload on USB serial; this script
 replays those objects to http://localhost:3000/api/telemetry.
+The saved field router is read from GET /api/network, which is stored in the local database.
 """
 
 from __future__ import annotations
@@ -12,14 +13,12 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from pathlib import Path
-
 import serial
 from serial.tools import list_ports
 
 API_URL = "http://127.0.0.1:3000/api/telemetry"
+NETWORK_URL = "http://127.0.0.1:3000/api/network"
 BAUD = 115200
-NETWORK_PATH = Path(__file__).resolve().parent / "data" / "network.json"
 
 
 def pick_gateway_port() -> str:
@@ -39,8 +38,9 @@ def pick_gateway_port() -> str:
 
 def load_router() -> tuple[str, str] | None:
     try:
-        data = json.loads(NETWORK_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        with urllib.request.urlopen(NETWORK_URL, timeout=2) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError, TimeoutError):
         return None
     ssid = str(data.get("ssid") or "").strip()
     password = data.get("password")

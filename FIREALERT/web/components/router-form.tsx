@@ -68,7 +68,7 @@ export function RouterForm({ gatewaySsid }: { gatewaySsid: string | null }) {
         <h2 id="router-heading">Router</h2>
       </div>
       <p className="note">
-        Wi-Fi name and password for the field gateway. Saved on this computer, not in the firmware source. Anyone who can open this dashboard can read the password.
+        Wi-Fi name and password for the field gateway. Saved in the local database on this computer, not in the firmware source. Anyone who can open this dashboard can read the password.
       </p>
       {!ready ? <p className="empty">Loading the saved router…</p> : null}
       <form className="incident-form" autoComplete="off" noValidate onSubmit={submit}>

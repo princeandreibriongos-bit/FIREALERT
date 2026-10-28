@@ -1,5 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { readRouterRow, writeRouterRow } from "./db";
 
 export type RouterCredentials = {
   ssid: string;
@@ -9,7 +8,6 @@ export type RouterCredentials = {
 
 const MAX_SSID = 32;
 const MAX_PASSWORD = 63;
-const FILE = path.join(process.cwd(), "data", "network.json");
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -29,21 +27,11 @@ export function parseRouterInput(body: unknown): { ok: true; value: { ssid: stri
 }
 
 export async function readRouter(): Promise<RouterCredentials> {
-  try {
-    const raw = await readFile(FILE, "utf8");
-    const parsed: unknown = JSON.parse(raw);
-    const checked = parseRouterInput(parsed);
-    if (!checked.ok) return { ssid: "", password: "", updated_at: null };
-    const updated = isRecord(parsed) && typeof parsed.updated_at === "string" ? parsed.updated_at : null;
-    return { ...checked.value, updated_at: updated };
-  } catch {
-    return { ssid: "", password: "", updated_at: null };
-  }
+  return readRouterRow();
 }
 
 export async function writeRouter(value: { ssid: string; password: string }): Promise<RouterCredentials> {
-  const saved: RouterCredentials = { ...value, updated_at: new Date().toISOString() };
-  await mkdir(path.dirname(FILE), { recursive: true });
-  await writeFile(FILE, `${JSON.stringify(saved, null, 2)}\n`, { mode: 0o600 });
-  return saved;
+  const updated_at = new Date().toISOString();
+  writeRouterRow({ ...value, updated_at });
+  return { ...value, updated_at };
 }

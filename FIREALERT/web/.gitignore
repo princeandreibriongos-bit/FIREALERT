@@ -5,4 +5,8 @@ out
 *.log
 *.tsbuildinfo
 data/network.json
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
 __pycache__/

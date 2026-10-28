@@ -10,7 +10,7 @@ The stack is an ESP32-S3 wrist node, an ESP32-S3 field gateway, and a Next.js bo
 - **Fall grace period.** A 10-second cancel window is in the firmware. The Edge Impulse model slot is empty, so motion alone does not raise a cue. Type `fall` on the wearable serial port to start the window. GPIO 4 (pull-up, active low) cancels it.
 - **Signed telemetry slot.** Packet version 2 carries every capstone field. ECDSA P-256 can sign the prefix once a key is provisioned. A signature checks authenticity and integrity. It does not encrypt the packet. The gateway still accepts the older 24-byte packet.
 - **Incidents and routes.** Save an address and the board geocodes it, then requests a driving option from an approximate Malugay Street origin. Routes are advisory.
-- **Router form.** Wi-Fi name and password are entered on the dashboard and stored on the computer and on the ESP32. Changing routers does not require an edit to `config.h` after the boards are flashed with this firmware.
+- **Router form.** Wi-Fi name and password are entered on the dashboard and stored in the local database and on the ESP32. Changing routers does not require an edit to `config.h` after the boards are flashed with this firmware.
 
 ## What is live
 
@@ -36,11 +36,11 @@ Slots exist. The parts are not installed, and the firmware does not probe a miss
 
 ## Router
 
-On the board, open **Router**, enter the Wi-Fi name and password, and click **Save router**. The file is `web/data/network.json` and is not committed.
+On the board, open **Router**, enter the Wi-Fi name and password, and click **Save router**. The value is stored in `web/data/firealert.db` and is not committed.
 
 Then either:
 
-- Plug in the gateway and run `npm run bridge`. The bridge sends the saved router over USB.
+- Plug in the gateway and run `npm run bridge`. The bridge reads `GET /api/network` and sends that router over USB.
 - Leave the gateway online. About every 20 seconds it reads `GET /api/network` and joins the saved router.
 
 Flash Node A and Node B once with this firmware so they can store the router. After that flash, later router changes are only the form. `config.h` is used only on a board that has never saved credentials. Do not commit a real Wi-Fi password.
@@ -73,7 +73,7 @@ npm run dev
 
 Open http://localhost:3000
 
-`npm test` checks packet normalization, signature verification, route parsing, and router-field validation.
+`npm test` checks packet normalization, signature verification, route parsing, router-field validation, and the database.
 
 If Windows Firewall blocks the ESP32 from POSTing to the PC, keep the gateway on USB and run:
 
@@ -90,6 +90,28 @@ Main routes:
 - `GET` and `PUT /api/network`
 - `GET` and `POST /api/incidents`, `PATCH /api/incidents/:id`
 - `GET /api/routes` for advisory driving options
+
+## Database
+
+SQLite file: `web/data/firealert.db`. The layout is `web/db/schema.sql`. The board reads and writes that file.
+
+The tables are grouped so each kind of record has one place:
+
+| Group | Tables | Holds |
+| --- | --- | --- |
+| Station | `stations` | New Makati Central Fire Station and the route origin |
+| Field devices | `gateways`, `wearables` | Gateway id and wearable id. A row is added when the first packet arrives |
+| Router | `router_settings` | The one current Wi-Fi name and password |
+| Reference | `sensor_slots` | What each sensor category is for |
+| Link | `telemetry_packets`, `telemetry_link` | When the packet arrived, sequence, uplink, signal, signature |
+| Power | `telemetry_power` | Battery, touchscreen, buzzer |
+| Physiology | `telemetry_physiology` | MAX30102 heart rate and estimated SpO₂ |
+| Environment | `telemetry_environment` | SCD40 and BME688 |
+| Motion | `telemetry_motion` | MPU-6050 and the fall state |
+| Location | `telemetry_location` | GPS fix or last-known point |
+| Incidents | `incidents` | Title, address, coordinates, open or closed |
+
+`telemetry_record` joins one packet back into a single row for the board. The log keeps the newest 250 packets. Closing an incident sets `closed_at`. Sensors that are not installed stay NULL.
 
 ## Limits
 
