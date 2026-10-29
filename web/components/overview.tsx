@@ -3,9 +3,19 @@
 import Link from "next/link";
 import { gatewayPhase, newestHardware, wearablePhase } from "@/lib/connection";
 import { airNeedsAttention, airReading, fallNeedsReview, linkState } from "@/lib/telemetry-core";
-import { ageLabel, fmt, manilaTime } from "@/lib/format";
+import { ageLabel, fmt, manilaTime, vecMagnitude } from "@/lib/format";
 import { useBoard } from "./board-provider";
 import { Badge, EmptyState, PageHeader } from "./ui";
+
+function readingLine(row: {
+  scd40: { co2_ppm: number | null; temperature_c: number | null; humidity_rh: number | null };
+  bme688: { temperature_c: number | null; humidity_rh: number | null; pressure_hpa: number | null; gas_resistance_ohm: number | null };
+  mpu6050: { accel_g: { x: number | null; y: number | null; z: number | null } | null };
+  mq6: { raw: number | null };
+}) {
+  const gravity = vecMagnitude(row.mpu6050.accel_g);
+  return `CO₂ ${fmt(row.scd40.co2_ppm, 0, " ppm")} · SCD ${fmt(row.scd40.temperature_c, 1, " °C")} ${fmt(row.scd40.humidity_rh, 0, "%")} · BME ${fmt(row.bme688.temperature_c, 1, " °C")} ${fmt(row.bme688.humidity_rh, 0, "%")} ${fmt(row.bme688.pressure_hpa, 0, " hPa")} · gas ${fmt(row.bme688.gas_resistance_ohm, 0, " Ω")} · gyro ${fmt(gravity, 2, " g")} · MQ-6 ${fmt(row.mq6.raw, 0)}`;
+}
 
 function fallLabel(state: string) {
   if (state === "distress") return "Distress alert";
@@ -56,7 +66,7 @@ export function Overview() {
           </h2>
           <p className="card-note">
             {hardware
-              ? `${hardware.wearer_id} · SCD40 ${hardware.scd40.installed ? "detected" : "not detected"} · BME688 ${hardware.bme688.installed ? "detected" : "not detected"} · CO₂ ${fmt(hardware.scd40.co2_ppm, 0, " ppm")} · BME ${fmt(hardware.bme688.temperature_c, 1, " °C")} · ${ageLabel(hardware.received_at, now)}`
+              ? `${hardware.wearer_id} · ${readingLine(hardware)} · ${ageLabel(hardware.received_at, now)}`
               : "No wearable packet yet. Sample crew does not count as a live connection."}
           </p>
         </div>
@@ -75,6 +85,42 @@ export function Overview() {
           </div>
         </dl>
       </section>
+      {hardware ? (
+        <section className="card">
+          <div className="card-head">
+            <h2 className="card-title">Live readings</h2>
+            <Link className="btn btn-ghost" href="/sensors">
+              All sensors
+            </Link>
+          </div>
+          <div className="metrics">
+            <Link className="metric" href="/sensors?sensor=scd40">
+              <p className="metric-label">SCD40 CO₂</p>
+              <p className="metric-value">{fmt(hardware.scd40.co2_ppm, 0, " ppm")}</p>
+              <p className="metric-detail">
+                {fmt(hardware.scd40.temperature_c, 1, " °C")} · {fmt(hardware.scd40.humidity_rh, 0, "% RH")}
+              </p>
+            </Link>
+            <Link className="metric" href="/sensors?sensor=bme688">
+              <p className="metric-label">BME688 air</p>
+              <p className="metric-value">{fmt(hardware.bme688.temperature_c, 1, " °C")}</p>
+              <p className="metric-detail">
+                {fmt(hardware.bme688.humidity_rh, 0, "% RH")} · {fmt(hardware.bme688.pressure_hpa, 0, " hPa")} · {fmt(hardware.bme688.gas_resistance_ohm, 0, " Ω")}
+              </p>
+            </Link>
+            <Link className="metric" href="/sensors?sensor=mpu6050">
+              <p className="metric-label">MPU-6050</p>
+              <p className="metric-value">{fmt(vecMagnitude(hardware.mpu6050.accel_g), 2, " g")}</p>
+              <p className="metric-detail">Total acceleration. About 1 g when the sensor is still.</p>
+            </Link>
+            <Link className="metric" href="/sensors?sensor=mq6">
+              <p className="metric-label">MQ-6</p>
+              <p className="metric-value">{fmt(hardware.mq6.raw, 0)}</p>
+              <p className="metric-detail">Relative count, 0–4095. Not a gas percentage.</p>
+            </Link>
+          </div>
+        </section>
+      ) : null}
       {simulated ? (
         <p className="banner is-sim">Sample crew is on the board. These packets are simulated and are not a live wearable.</p>
       ) : null}
@@ -204,11 +250,7 @@ export function Overview() {
                     <span>
                       <Link href={`/crew/${row.wearer_id}`}>{row.wearer_id}</Link>
                       {" · "}
-                      {row.fall.state}
-                      {" · CO₂ "}
-                      {fmt(row.scd40.co2_ppm, 0)}
-                      {" · BME "}
-                      {fmt(row.bme688.temperature_c, 1, " °C")}
+                      {readingLine(row)}
                     </span>
                   </li>
                 ))}
@@ -253,7 +295,7 @@ export function Overview() {
                         <strong>
                           {person.wearer_id}
                           <span className="fine">
-                            SCD40 {person.scd40.installed ? "detected" : "not detected"} · BME688 {person.bme688.installed ? "detected" : "not detected"} · {fmt(person.bme688.temperature_c, 1, " °C")}
+                            {readingLine(person)}
                           </span>
                         </strong>
                         <span>

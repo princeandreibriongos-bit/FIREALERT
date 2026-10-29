@@ -16,8 +16,10 @@ Single source of truth for wiring is `firmware/node-a/include/config.h` and `fir
 | --- | --- | --- | --- | --- |
 | **8** | I2C **SDA** | SCD40 (bus 0) | `I2C_SDA_PIN` | **In use** |
 | **9** | I2C **SCL** | SCD40 (bus 0) | `I2C_SCL_PIN` | **In use** |
-| **17** | I2C **SDA** | BME688 (bus 1, when separate) | `BME688_I2C_SDA_PIN` | **In use** if `BME688_SEPARATE_I2C_BUS` |
-| **18** | I2C **SCL** | BME688 (bus 1, when separate) | `BME688_I2C_SCL_PIN` | **In use** if `BME688_SEPARATE_I2C_BUS` |
+| **17** | I2C **SDA** | BME688 (bus 1, when separate) | `BME688_I2C_SDA_PIN` | **In use** |
+| **18** | I2C **SCL** | BME688 (bus 1, when separate) | `BME688_I2C_SCL_PIN` | **In use** |
+| **40** | — | Free. Do not use for the gyro while SDA/SCL are on the SCD40 bus | — | Open |
+| **41** | — | Free. Do not use for the gyro while SDA/SCL are on the SCD40 bus | — | Open |
 | **4** | Digital in (pull-up, **active low**) | Fall cancel button | `CANCEL_BUTTON_ENABLED` | **In use** |
 | **5** | Digital out | Buzzer (+) | `BUZZER_INSTALLED` | Reserved / not fitted |
 | **6** | ADC | Battery divider sense | `BATTERY_SENSE_ENABLED` | Reserved / not fitted |
@@ -43,7 +45,7 @@ Single source of truth for wiring is `firmware/node-a/include/config.h` and `fir
 
 **Alternative:** Set `BME688_SEPARATE_I2C_BUS = false` and parallel-wire BME688 to the same **8/9** as SCD40 (breadboard or soldered bus).
 
-Future MAX30102 / MPU-6050 can share **bus 0** (8/9) when enabled, or get their own bus if needed.
+The MPU-6050 shares **GPIO 8/9** with the SCD40. Leave **GPIO 17/18** for the BME688 only.
 
 ---
 
@@ -62,7 +64,7 @@ Each module must have a **unique I2C address** (set by hardware, e.g. BME688 SDO
 | SCD40 | `0x62` | `SCD40_I2C_ADDR` | `SCD40_ENABLED` | **Live** |
 | BME688 | `0x77` or `0x76` | `BME688_I2C_ADDR` / `_ALT` | `BME688_ENABLED` | **Live** (tries both at boot) |
 | MAX30102 | `0x57` | `MAX30102_I2C_ADDR` | `MAX30102_ENABLED` | Not installed |
-| MPU-6050 | `0x68` | `MPU6050_I2C_ADDR` | `MPU6050_ENABLED` | Not installed |
+| MPU-6050 | `0x68` | `MPU6050_I2C_ADDR` | `MPU6050_ENABLED` | **GPIO 8 / 9** with the SCD40 |
 
 Bus speed: **100 kHz** (`I2C_FREQUENCY_HZ`).
 
@@ -131,17 +133,18 @@ Address: **`0x57`**. Enable only after driver is linked: `MAX30102_ENABLED = tru
 
 ---
 
-### MPU-6050 (planned — accel / gyro)
+### MPU-6050 (accel / gyro)
+
+The gyro shares **GPIO 8 / 9** with the SCD40. Leave the BME688 alone on **GPIO 17 / 18**. Do not put **SDA** or **SCL** on the blue ground stripe.
 
 | MPU-6050 pin | Connect to Node A |
 | --- | --- |
-| VCC / 3V3 | **3V3** |
-| GND | **GND** |
-| SDA | **GPIO 8** |
-| SCL | **GPIO 9** |
-| AD0 | **GND** → **`0x68`** · **3V3** → **`0x69`** (firmware expects **`0x68`**) |
-
-Enable only after driver is linked: `MPU6050_ENABLED = true`.
+| VCC | **5V** |
+| GND | **GND** (blue stripe) |
+| SDA | **GPIO 8** (same row as the SCD40 SDA) |
+| SCL | **GPIO 9** (same row as the SCD40 SCL) |
+| AD0 | **GND** (address **`0x68`**) |
+| INT, XDA, XCL | Leave open |
 
 ---
 
@@ -257,3 +260,7 @@ After Node B connects to Wi-Fi, serial log prints **channel** and **STA MAC**. S
 | --- | --- |
 | 2026-10-27 | Initial pin map: shared I2C, SCD40 + BME688 live, planned GPS/MAX30102/MPU/display/battery/buzzer |
 | 2026-10-27 | BME688 optional second I2C bus on GPIO 17/18 for dupont wiring |
+| 2026-10-30 | MPU-6050 VCC on the 5V pin; SDA/SCL stay on GPIO 40/41 after a 3.3 V check |
+| 2026-10-30 | MPU-6050 SDA/SCL moved onto GPIO 17/18 with the BME688 |
+| 2026-10-30 | MPU-6050 returned to GPIO 40/41 after it stayed silent on both pairs |
+| 2026-10-30 | MPU-6050 SDA/SCL moved onto GPIO 8/9 with the SCD40 |

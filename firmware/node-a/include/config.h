@@ -23,8 +23,7 @@ static constexpr uint32_t SAMPLE_INTERVAL_MS = 5000;
 static constexpr int I2C_SDA_PIN = 8;
 static constexpr int I2C_SCL_PIN = 9;
 static constexpr uint32_t I2C_FREQUENCY_HZ = 100000;
-// SCD40 and MPU-6050 share this bus. 50 kHz is within the SCD40 limit and
-// gives the motion chip a cleaner register write than 100 kHz.
+// SCD40 stays alone on this bus. 50 kHz is within its clock-stretch limit.
 static constexpr uint32_t SHARED_I2C_HZ = 50000;
 
 static constexpr uint8_t SCD40_I2C_ADDR = 0x62;     // CO2, sensor temperature, humidity
@@ -36,7 +35,11 @@ static constexpr bool BME688_SEPARATE_I2C_BUS = true;
 static constexpr int BME688_I2C_SDA_PIN = 17;
 static constexpr int BME688_I2C_SCL_PIN = 18;
 static constexpr uint8_t MAX30102_I2C_ADDR = 0x57;  // heart rate, estimated SpO2 — not clinical
-static constexpr uint8_t MPU6050_I2C_ADDR = 0x68;   // accel + gyro for the fall model
+static constexpr uint8_t MPU6050_I2C_ADDR = 0x68;   // AD0 tied to GND. AD0 to 3V3 is 0x69.
+// Shares GPIO 8/9 with the SCD40. Leave the BME688 alone on 17/18.
+static constexpr bool MPU6050_SEPARATE_I2C_BUS = false;
+static constexpr int MPU6050_I2C_SDA_PIN = 8;
+static constexpr int MPU6050_I2C_SCL_PIN = 9;
 
 // Set true only after that module is soldered and the matching driver is linked.
 static constexpr bool SCD40_ENABLED = true;

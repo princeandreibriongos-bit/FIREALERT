@@ -5,8 +5,9 @@
 // --- Uplink ----------------------------------------------------------------
 // The capstone gateway forwards over cellular when a modem is installed.
 // Until then, Wi-Fi is the stand-in that carries the same JSON POST.
-// Set the router name and password on the dashboard. The constants below
-// are used only until the board has saved credentials of its own.
+// Set the router and the phone hotspot on the dashboard. The gateway stores
+// both and joins whichever one is in range, trying the active one first.
+// The constants below are used only until the board has saved credentials.
 static constexpr bool CELLULAR_MODEM_INSTALLED = false;
 static constexpr const char *WIFI_SSID = "YOUR_WIFI_SSID";
 static constexpr const char *WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
@@ -15,7 +16,7 @@ static constexpr const char *WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 static constexpr const char *TELEMETRY_URL = "http://192.168.1.13:3000/api/telemetry";
 
 static constexpr const char *GATEWAY_ID = "node-b";
-static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000;
+static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 12000;
 // Same fallback the wearable uses when it cannot join Wi-Fi. ESP-NOW only
 // works when both radios are on this channel.
 static constexpr uint8_t WIFI_CHANNEL = 9;

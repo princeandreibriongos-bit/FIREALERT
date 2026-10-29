@@ -6,6 +6,7 @@ export type GatewayLink = {
   channel: number | null;
   mac: string | null;
   cellular: string | null;
+  ssid: string | null;
   seen_at: string | null;
 };
 
@@ -15,6 +16,7 @@ export type LinkReport = {
   channel: number | null;
   mac: string | null;
   cellular: string | null;
+  ssid: string | null;
 };
 
 const EMPTY: GatewayLink = {
@@ -23,6 +25,7 @@ const EMPTY: GatewayLink = {
   channel: null,
   mac: null,
   cellular: null,
+  ssid: null,
   seen_at: null,
 };
 
@@ -58,7 +61,9 @@ export function parseLinkReport(body: unknown): { ok: true; value: LinkReport } 
   const mac = record.mac == null || record.mac === "" ? null : text(record.mac, 17);
   if (record.mac != null && record.mac !== "" && mac == null) return { ok: false, error: "mac is not valid" };
   const cellular = record.cellular == null || record.cellular === "" ? null : text(record.cellular, 32);
-  return { ok: true, value: { wifi: record.wifi, ip, channel, mac, cellular } };
+  const ssidText = typeof record.ssid === "string" ? record.ssid.trim() : "";
+  const ssid = ssidText && ssidText !== "-" && ssidText.length <= 32 ? ssidText : null;
+  return { ok: true, value: { wifi: record.wifi, ip, channel, mac, cellular, ssid } };
 }
 
 export function noteLink(report: LinkReport, seenAt = new Date().toISOString()): GatewayLink {

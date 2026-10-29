@@ -17,6 +17,7 @@ export const EMPTY_GATEWAY: GatewayLink = {
   channel: null,
   mac: null,
   cellular: null,
+  ssid: null,
   seen_at: null,
 };
 
@@ -52,6 +53,7 @@ function parseGateway(value: unknown): GatewayLink {
     channel,
     mac: text(record.mac, 17),
     cellular: text(record.cellular, 32),
+    ssid: text(record.ssid, 32),
     seen_at: typeof record.seen_at === "string" ? record.seen_at : null,
   };
 }

@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <esp_now.h>
+#include <esp_wifi.h>
 #include <ArduinoJson.h>
 #include <math.h>
 #include <stdio.h>
@@ -12,6 +13,20 @@
 #include "wifi_store.h"
 
 static WifiCreds g_wifi = {};
+static WifiBook g_book = {};
+static char g_appliedSsid[33] = {};
+static char g_appliedPass[64] = {};
+static char g_joined[33] = {};
+
+enum class WifiPhase : uint8_t { Idle, Connecting, Scanning, Hold, Connected };
+
+static WifiPhase g_phase = WifiPhase::Idle;
+static uint32_t g_phaseMs = 0;
+static uint8_t g_candidate[WIFI_SLOTS] = {};
+static uint8_t g_candidateCount = 0;
+static uint8_t g_candidatePos = 0;
+static bool g_channelHeld = false;
+static bool g_recheck = false;
 
 static constexpr size_t QUEUE_DEPTH = 8;
 static constexpr size_t PACKET_MAX = 250;
@@ -86,40 +101,259 @@ static void formatMac(const uint8_t *mac, char *out, size_t outLen) {
            mac[5]);
 }
 
-static bool ensureWifi() {
-  if (WiFi.status() == WL_CONNECTED) {
-    return true;
-  }
-  if (g_wifi.ssid[0] == '\0') {
-    Serial.println("[node-b] no router saved");
-    return false;
-  }
-  Serial.printf("[node-b] Connecting to Wi-Fi SSID '%s'\n", g_wifi.ssid);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(g_wifi.ssid, g_wifi.password);
+static void rememberApplied(const char *ssid, const char *password) {
+  strncpy(g_appliedSsid, ssid, sizeof(g_appliedSsid) - 1);
+  g_appliedSsid[sizeof(g_appliedSsid) - 1] = '\0';
+  strncpy(g_appliedPass, password, sizeof(g_appliedPass) - 1);
+  g_appliedPass[sizeof(g_appliedPass) - 1] = '\0';
+}
 
-  const uint32_t start = millis();
-  while (WiFi.status() != WL_CONNECTED && (millis() - start) < WIFI_CONNECT_TIMEOUT_MS) {
-    delay(250);
-    Serial.print('.');
+static void copySlot(uint8_t index) {
+  const WifiSlot &slot = g_book.slots[index];
+  strncpy(g_wifi.ssid, slot.ssid, sizeof(g_wifi.ssid) - 1);
+  g_wifi.ssid[sizeof(g_wifi.ssid) - 1] = '\0';
+  strncpy(g_wifi.password, slot.password, sizeof(g_wifi.password) - 1);
+  g_wifi.password[sizeof(g_wifi.password) - 1] = '\0';
+  g_wifi.fromNvs = true;
+}
+
+static int8_t slotForSsid(const char *ssid) {
+  for (uint8_t i = 0; i < g_book.count; i++) {
+    if (strcmp(g_book.slots[i].ssid, ssid) == 0) return static_cast<int8_t>(i);
   }
-  Serial.println();
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[node-b] Wi-Fi connect failed");
-    return false;
+  return -1;
+}
+
+static void holdFallbackChannel() {
+  if (g_channelHeld) return;
+  esp_wifi_set_promiscuous(true);
+  esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
+  esp_wifi_set_promiscuous(false);
+  g_channelHeld = true;
+  Serial.printf("[node-b] Wi-Fi down; ESP-NOW stays on channel %u until a saved network answers\n", WIFI_CHANNEL);
+}
+
+static void beginJoin(uint8_t index, bool force) {
+  if (index >= g_book.count) return;
+  copySlot(index);
+  g_channelHeld = false;
+  g_recheck = false;
+  WiFi.setSleep(false);
+  WiFi.mode(WIFI_STA);
+  if (!force && WiFi.status() == WL_CONNECTED && WiFi.SSID() == g_wifi.ssid) {
+    g_phase = WifiPhase::Connected;
+    g_phaseMs = millis();
+    return;
   }
-  Serial.print("[node-b] Wi-Fi OK  IP=");
+  WiFi.disconnect(false, false);
+  WiFi.begin(g_wifi.ssid, g_wifi.password);
+  g_phase = WifiPhase::Connecting;
+  g_phaseMs = millis();
+  Serial.printf("[node-b] joining %s\n", g_wifi.ssid);
+}
+
+static void armPreferred(bool force) {
+  if (g_book.count == 0) return;
+  g_candidateCount = 1;
+  g_candidatePos = 0;
+  g_candidate[0] = g_book.preferred;
+  beginJoin(g_book.preferred, force);
+}
+
+static void queueVisible(int found) {
+  bool seen[WIFI_SLOTS] = {};
+  int32_t rssi[WIFI_SLOTS];
+  for (uint8_t i = 0; i < WIFI_SLOTS; i++) rssi[i] = -127;
+  for (int i = 0; i < found; i++) {
+    const int8_t slot = slotForSsid(WiFi.SSID(i).c_str());
+    if (slot < 0) continue;
+    seen[slot] = true;
+    const int32_t level = WiFi.RSSI(i);
+    if (level > rssi[slot]) rssi[slot] = level;
+  }
+  WiFi.scanDelete();
+
+  uint8_t rest[WIFI_SLOTS];
+  uint8_t restCount = 0;
+  for (uint8_t i = 0; i < g_book.count; i++) {
+    if (i == g_book.preferred || !seen[i]) continue;
+    rest[restCount++] = i;
+  }
+  for (uint8_t a = 0; a + 1 < restCount; a++) {
+    for (uint8_t b = a + 1; b < restCount; b++) {
+      if (rssi[rest[b]] > rssi[rest[a]]) {
+        const uint8_t tmp = rest[a];
+        rest[a] = rest[b];
+        rest[b] = tmp;
+      }
+    }
+  }
+
+  g_candidateCount = 0;
+  g_candidatePos = 0;
+  if (g_book.count > 0 && seen[g_book.preferred]) g_candidate[g_candidateCount++] = g_book.preferred;
+  for (uint8_t i = 0; i < restCount; i++) g_candidate[g_candidateCount++] = rest[i];
+  if (g_book.count > 0 && !seen[g_book.preferred]) g_candidate[g_candidateCount++] = g_book.preferred;
+}
+
+static bool onPreferred() {
+  if (g_book.count == 0) return true;
+  return WiFi.SSID() == g_book.slots[g_book.preferred].ssid;
+}
+
+static void noteUp() {
+  if (g_phase == WifiPhase::Connected) return;
+  g_phase = WifiPhase::Connected;
+  g_phaseMs = millis();
+  g_channelHeld = false;
+  g_recheck = false;
+  String ssid = WiFi.SSID();
+  if (ssid.length() == 0) ssid = g_wifi.ssid;
+  strncpy(g_joined, ssid.c_str(), sizeof(g_joined) - 1);
+  g_joined[sizeof(g_joined) - 1] = '\0';
+  Serial.print("[node-b] Wi-Fi OK  SSID=");
+  Serial.print(g_joined);
+  Serial.print("  IP=");
   Serial.print(WiFi.localIP());
   Serial.print("  channel=");
   Serial.print(WiFi.channel());
   Serial.print("  STA MAC=");
   Serial.println(WiFi.macAddress());
-  Serial.println("[node-b] Set Node A WIFI_CHANNEL to this channel and NODE_B_MAC to this STA MAC.");
-  return true;
+}
+
+static void startScan() {
+  g_recheck = false;
+  Serial.println("[node-b] looking for a saved network");
+  const int started = WiFi.scanNetworks(true, true);
+  if (started == WIFI_SCAN_FAILED) {
+    g_phase = WifiPhase::Hold;
+    g_phaseMs = millis();
+    holdFallbackChannel();
+    return;
+  }
+  g_phase = WifiPhase::Scanning;
+  g_phaseMs = millis();
+}
+
+static void failJoin() {
+  Serial.printf("[node-b] could not join %s (status %d)\n", g_wifi.ssid, static_cast<int>(WiFi.status()));
+  g_candidatePos++;
+  if (g_candidatePos < g_candidateCount) {
+    beginJoin(g_candidate[g_candidatePos], true);
+    return;
+  }
+  WiFi.disconnect(false, false);
+  g_candidateCount = 0;
+  g_candidatePos = 0;
+  g_phase = WifiPhase::Idle;
+  startScan();
+}
+
+static void serviceWifi() {
+  if (g_book.count == 0) return;
+
+  if (WiFi.status() == WL_CONNECTED && g_phase == WifiPhase::Connecting && WiFi.SSID() != g_wifi.ssid) {
+    if (millis() - g_phaseMs < WIFI_CONNECT_TIMEOUT_MS) return;
+    failJoin();
+    return;
+  }
+
+  if (WiFi.status() == WL_CONNECTED && g_phase != WifiPhase::Scanning) {
+    if (WiFi.SSID().length() > 0 && WiFi.SSID() != g_wifi.ssid) {
+      WiFi.disconnect(false, false);
+      return;
+    }
+    noteUp();
+    if (!onPreferred() && millis() - g_phaseMs >= 45000) {
+      Serial.println("[node-b] checking whether the preferred network is back");
+      g_recheck = true;
+      if (WiFi.scanNetworks(true, true) == WIFI_SCAN_FAILED) {
+        g_recheck = false;
+        g_phaseMs = millis();
+      } else {
+        g_phase = WifiPhase::Scanning;
+      }
+    }
+    return;
+  }
+
+  if (g_phase == WifiPhase::Scanning && WiFi.status() == WL_CONNECTED && g_recheck) {
+    const int found = WiFi.scanComplete();
+    if (found == WIFI_SCAN_RUNNING) return;
+    bool visible = false;
+    if (found > 0) {
+      const char *want = g_book.slots[g_book.preferred].ssid;
+      for (int i = 0; i < found; i++) {
+        if (WiFi.SSID(i) == want && WiFi.RSSI(i) >= -85) visible = true;
+      }
+    }
+    WiFi.scanDelete();
+    g_recheck = false;
+    if (visible && !onPreferred()) {
+      Serial.printf("[node-b] preferred network %s is back\n", g_book.slots[g_book.preferred].ssid);
+      armPreferred(true);
+      return;
+    }
+    g_phase = WifiPhase::Connected;
+    g_phaseMs = millis();
+    return;
+  }
+
+  if (g_phase == WifiPhase::Connected) {
+    Serial.println("[node-b] Wi-Fi dropped");
+    g_joined[0] = '\0';
+    g_recheck = false;
+    g_candidatePos = g_candidateCount;
+    g_phase = WifiPhase::Idle;
+  }
+
+  if (g_phase == WifiPhase::Connecting) {
+    if (millis() - g_phaseMs < WIFI_CONNECT_TIMEOUT_MS) return;
+    failJoin();
+    return;
+  }
+
+  if (g_phase == WifiPhase::Scanning) {
+    const int found = WiFi.scanComplete();
+    if (found == WIFI_SCAN_RUNNING) return;
+    if (found < 0) {
+      WiFi.scanDelete();
+      g_phase = WifiPhase::Hold;
+      g_phaseMs = millis();
+      holdFallbackChannel();
+      return;
+    }
+    queueVisible(found);
+    Serial.printf("[node-b] %d network(s) in range, %u saved match\n", found, static_cast<unsigned>(g_candidateCount));
+    if (g_candidateCount == 0) {
+      Serial.print("[node-b] none of the saved networks are in range:");
+      for (uint8_t i = 0; i < g_book.count; i++) {
+        Serial.print(' ');
+        Serial.print(g_book.slots[i].ssid);
+      }
+      Serial.println();
+      g_phase = WifiPhase::Hold;
+      g_phaseMs = millis();
+      holdFallbackChannel();
+      return;
+    }
+    beginJoin(g_candidate[0], false);
+    return;
+  }
+
+  if (g_phase == WifiPhase::Hold) {
+    if (millis() - g_phaseMs < 10000) return;
+    g_phase = WifiPhase::Idle;
+  }
+
+  if (g_candidatePos < g_candidateCount) {
+    beginJoin(g_candidate[g_candidatePos], false);
+    return;
+  }
+  startScan();
 }
 
 static bool initEspNow() {
-  WiFi.mode(WIFI_STA);
   if (esp_now_init() != ESP_OK) {
     Serial.println("[node-b] esp_now_init failed");
     return false;
@@ -235,44 +469,51 @@ static String networkConfigUrl() {
   return url.substring(0, slash) + "/api/network";
 }
 
-static void applyRouter(const char *ssid, const char *password) {
-  strncpy(g_wifi.ssid, ssid, sizeof(g_wifi.ssid) - 1);
-  g_wifi.ssid[sizeof(g_wifi.ssid) - 1] = '\0';
-  strncpy(g_wifi.password, password, sizeof(g_wifi.password) - 1);
-  g_wifi.password[sizeof(g_wifi.password) - 1] = '\0';
-  g_wifi.fromNvs = true;
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
-  WiFi.begin(g_wifi.ssid, g_wifi.password);
-  Serial.printf("[node-b] joining router %s\n", g_wifi.ssid);
-}
-
 static void loadRouter() {
-  if (loadWifiCreds(g_wifi)) {
-    Serial.printf("[node-b] router from device memory: %s\n", g_wifi.ssid);
+  loadWifiBook(g_book);
+  if (g_book.count == 0 && WIFI_SSID[0] != '\0' && strcmp(WIFI_SSID, "YOUR_WIFI_SSID") != 0) {
+    if (upsertWifi(WIFI_SSID, WIFI_PASSWORD, true)) loadWifiBook(g_book);
+    Serial.printf("[node-b] router from config.h fallback: %s\n", WIFI_SSID);
+  }
+  if (g_book.count == 0) {
+    Serial.println("[node-b] no router yet — enter it on the dashboard");
     return;
   }
-  if (WIFI_SSID[0] != '\0' && strcmp(WIFI_SSID, "YOUR_WIFI_SSID") != 0) {
-    strncpy(g_wifi.ssid, WIFI_SSID, sizeof(g_wifi.ssid) - 1);
-    strncpy(g_wifi.password, WIFI_PASSWORD, sizeof(g_wifi.password) - 1);
-    g_wifi.ssid[sizeof(g_wifi.ssid) - 1] = '\0';
-    g_wifi.password[sizeof(g_wifi.password) - 1] = '\0';
-    Serial.printf("[node-b] router from config.h fallback: %s\n", g_wifi.ssid);
-    return;
+  copySlot(g_book.preferred);
+  rememberApplied(g_wifi.ssid, g_wifi.password);
+  Serial.printf("[node-b] %u saved network(s); preferred %s\n", g_book.count, g_book.slots[g_book.preferred].ssid);
+  for (uint8_t i = 0; i < g_book.count; i++) {
+    if (i == g_book.preferred) continue;
+    Serial.printf("[node-b] also saved %s\n", g_book.slots[i].ssid);
   }
-  Serial.println("[node-b] no router yet — enter it on the dashboard");
 }
 
 static void readRouterFromSerial() {
-  static char line[128];
+  static char line[160];
   static size_t used = 0;
   while (takeSerialLine(line, sizeof(line), used)) {
     char ssid[33];
     char password[64];
-    if (!parseWifiLine(line, ssid, sizeof(ssid), password, sizeof(password))) continue;
-    if (!saveWifiCreds(ssid, password)) continue;
-    applyRouter(ssid, password);
-    Serial.println("[node-b] router saved from USB");
+    bool prefer = false;
+    if (!parseWifiCommand(line, prefer, ssid, sizeof(ssid), password, sizeof(password))) continue;
+    const int8_t existing = slotForSsid(ssid);
+    const bool unchanged = existing >= 0 && strcmp(g_book.slots[existing].password, password) == 0 &&
+                           (!prefer || g_book.preferred == static_cast<uint8_t>(existing));
+    if (!unchanged) {
+      if (!upsertWifi(ssid, password, prefer)) continue;
+      loadWifiBook(g_book);
+      if (!prefer) Serial.printf("[node-b] remembered %s\n", ssid);
+    }
+    if (!prefer) continue;
+    const bool same = strcmp(ssid, g_appliedSsid) == 0 && strcmp(password, g_appliedPass) == 0;
+    rememberApplied(ssid, password);
+    if (WiFi.status() == WL_CONNECTED && WiFi.SSID() == ssid && same) {
+      g_phase = WifiPhase::Connected;
+      continue;
+    }
+    if (same && (g_phase == WifiPhase::Connecting || g_phase == WifiPhase::Scanning)) continue;
+    Serial.printf("[node-b] router saved from USB: %s\n", ssid);
+    armPreferred(true);
   }
 }
 
@@ -297,13 +538,31 @@ static void pollDashboardRouter() {
 
   JsonDocument doc;
   if (deserializeJson(doc, body)) return;
+
+  auto remember = [](JsonVariant value, bool prefer) {
+    if (!value.is<JsonObject>()) return;
+    const char *name = value["ssid"] | "";
+    const char *pass = value["password"] | "";
+    if (name[0] == '\0') return;
+    const int8_t slot = slotForSsid(name);
+    if (slot >= 0 && strcmp(g_book.slots[slot].password, pass) == 0) {
+      if (!prefer || g_book.preferred == static_cast<uint8_t>(slot)) return;
+    }
+    if (!upsertWifi(name, pass, prefer)) return;
+    loadWifiBook(g_book);
+  };
+  remember(doc["router"], false);
+  remember(doc["hotspot"], false);
+
   const char *ssid = doc["ssid"] | "";
   const char *password = doc["password"] | "";
   if (ssid[0] == '\0') return;
-  if (strcmp(ssid, g_wifi.ssid) == 0 && strcmp(password, g_wifi.password) == 0) return;
-  if (!saveWifiCreds(ssid, password)) return;
+  if (strcmp(ssid, g_appliedSsid) == 0 && strcmp(password, g_appliedPass) == 0) return;
+  if (!upsertWifi(ssid, password, true)) return;
+  loadWifiBook(g_book);
+  rememberApplied(ssid, password);
   Serial.printf("[node-b] router updated from dashboard: %s\n", ssid);
-  applyRouter(ssid, password);
+  armPreferred(true);
 }
 
 static bool postDocument(JsonDocument &doc) {
@@ -312,7 +571,7 @@ static bool postDocument(JsonDocument &doc) {
   serializeJson(doc, body);
   // The USB bridge forwards this line even when the gateway Wi-Fi is down.
   Serial.println(body);
-  if (!ensureWifi() && !CELLULAR_MODEM_INSTALLED) {
+  if (WiFi.status() != WL_CONNECTED && !CELLULAR_MODEM_INSTALLED) {
     return false;
   }
 
@@ -498,34 +757,45 @@ static bool postV2(const QueuedPacket &item) {
 
 void setup() {
   Serial.begin(115200);
-  delay(1500);
+  delay(200);
   Serial.println();
   Serial.println("[node-b] FIREALERT field gateway boot");
-  loadRouter();
+  WiFi.persistent(false);
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+  WiFi.setAutoReconnect(false);
+  WiFi.disconnect(false, true);
+  delay(100);
   Serial.printf("[node-b] v2 packet %u bytes; uplink %s\n", static_cast<unsigned>(sizeof(TelemetryPacket)),
                 CELLULAR_MODEM_INSTALLED ? "cellular" : "wifi stand-in");
-  if (!ensureWifi()) {
-    Serial.println("[node-b] continuing; will retry the uplink before each POST");
-  }
   if (!initEspNow()) {
     Serial.println("[node-b] ESP-NOW init failed — halt");
     while (true) {
       delay(1000);
     }
   }
+  loadRouter();
+  if (g_book.count > 0) armPreferred(false);
 }
 
 void loop() {
   readRouterFromSerial();
+  serviceWifi();
   pollDashboardRouter();
 
   static uint32_t lastBeatMs = 0;
   if (millis() - lastBeatMs >= 2000) {
     lastBeatMs = millis();
-    Serial.printf("[node-b] heartbeat wifi=%s ip=%s ch=%u mac=%s cellular=%s\n",
-                  WiFi.status() == WL_CONNECTED ? "up" : "down", WiFi.localIP().toString().c_str(),
-                  WiFi.channel(), WiFi.macAddress().c_str(),
-                  CELLULAR_MODEM_INSTALLED ? "ready" : "not-installed");
+    const bool up = WiFi.status() == WL_CONNECTED && g_phase != WifiPhase::Connecting;
+    String ssid = "-";
+    if (up) {
+      ssid = WiFi.SSID();
+      if (ssid.length() == 0) ssid = g_joined[0] ? g_joined : g_wifi.ssid;
+    }
+    Serial.printf("[node-b] heartbeat wifi=%s ip=%s ch=%u mac=%s cellular=%s ssid=%s\n",
+                  up ? "up" : "down", up ? WiFi.localIP().toString().c_str() : "0.0.0.0",
+                  up ? WiFi.channel() : WIFI_CHANNEL, WiFi.macAddress().c_str(),
+                  CELLULAR_MODEM_INSTALLED ? "ready" : "not-installed", ssid.c_str());
   }
 
   QueuedPacket item;

@@ -18,7 +18,10 @@ static void onEspNowSent(const uint8_t *mac, esp_now_send_status_t status) {
 }
 
 static bool initEspNow() {
+  WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+  WiFi.setAutoReconnect(true);
 
   uint8_t homeChannel = WIFI_CHANNEL;
   if (wearableWifiConfigured()) {

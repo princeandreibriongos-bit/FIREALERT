@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { fmt, manilaTime } from "@/lib/format";
+import { fmt, manilaTime, vecMagnitude, vecText } from "@/lib/format";
 import { FALL_STATES, type FallState } from "@/lib/telemetry-core";
 import { useBoard } from "./board-provider";
 import { Badge, EmptyState, PageHeader } from "./ui";
@@ -27,18 +27,51 @@ export function PacketLog() {
   }, [fall, items, wearer]);
 
   function download() {
-    const header = ["received_at", "wearer_id", "sequence", "co2_ppm", "bme_temperature_c", "bme_humidity_rh", "bme_pressure_hpa", "bme_gas_resistance_ohm", "heart_rate_bpm", "fall", "gps", "signature"];
+    const header = [
+      "received_at",
+      "wearer_id",
+      "sequence",
+      "co2_ppm",
+      "scd40_temperature_c",
+      "scd40_humidity_rh",
+      "bme_temperature_c",
+      "bme_humidity_rh",
+      "bme_pressure_hpa",
+      "bme_gas_resistance_ohm",
+      "accel_g",
+      "accel_x",
+      "accel_y",
+      "accel_z",
+      "gyro_dps",
+      "gyro_x",
+      "gyro_y",
+      "gyro_z",
+      "mq6_raw",
+      "fall",
+      "gps",
+      "signature",
+    ];
     const body = rows.map((row) =>
       [
         row.received_at,
         row.wearer_id,
         row.sequence == null ? "" : String(row.sequence),
         row.scd40.co2_ppm == null ? "" : String(row.scd40.co2_ppm),
+        row.scd40.temperature_c == null ? "" : String(row.scd40.temperature_c),
+        row.scd40.humidity_rh == null ? "" : String(row.scd40.humidity_rh),
         row.bme688.temperature_c == null ? "" : String(row.bme688.temperature_c),
         row.bme688.humidity_rh == null ? "" : String(row.bme688.humidity_rh),
         row.bme688.pressure_hpa == null ? "" : String(row.bme688.pressure_hpa),
         row.bme688.gas_resistance_ohm == null ? "" : String(row.bme688.gas_resistance_ohm),
-        row.max30102.heart_rate_bpm == null ? "" : String(row.max30102.heart_rate_bpm),
+        vecMagnitude(row.mpu6050.accel_g) == null ? "" : String(vecMagnitude(row.mpu6050.accel_g)),
+        row.mpu6050.accel_g?.x == null ? "" : String(row.mpu6050.accel_g.x),
+        row.mpu6050.accel_g?.y == null ? "" : String(row.mpu6050.accel_g.y),
+        row.mpu6050.accel_g?.z == null ? "" : String(row.mpu6050.accel_g.z),
+        vecMagnitude(row.mpu6050.gyro_dps) == null ? "" : String(vecMagnitude(row.mpu6050.gyro_dps)),
+        row.mpu6050.gyro_dps?.x == null ? "" : String(row.mpu6050.gyro_dps.x),
+        row.mpu6050.gyro_dps?.y == null ? "" : String(row.mpu6050.gyro_dps.y),
+        row.mpu6050.gyro_dps?.z == null ? "" : String(row.mpu6050.gyro_dps.z),
+        row.mq6.raw == null ? "" : String(row.mq6.raw),
         row.fall.state,
         row.gps.state,
         row.signature.status,
@@ -134,11 +167,15 @@ export function PacketLog() {
                 <th>Wearer</th>
                 <th>Seq</th>
                 <th>CO₂</th>
+                <th>SCD °C</th>
+                <th>SCD RH</th>
                 <th>BME °C</th>
                 <th>BME RH</th>
                 <th>Pressure</th>
                 <th>Gas Ω</th>
-                <th>Heart rate</th>
+                <th>Accel g</th>
+                <th>Gyro dps</th>
+                <th>MQ-6</th>
                 <th>Fall</th>
                 <th>GPS</th>
                 <th>Signature</th>
@@ -153,11 +190,15 @@ export function PacketLog() {
                   </td>
                   <td>{row.sequence ?? "—"}</td>
                   <td>{fmt(row.scd40.co2_ppm, 0)}</td>
+                  <td>{fmt(row.scd40.temperature_c, 1)}</td>
+                  <td>{fmt(row.scd40.humidity_rh, 0)}</td>
                   <td>{fmt(row.bme688.temperature_c, 1)}</td>
                   <td>{fmt(row.bme688.humidity_rh, 0)}</td>
                   <td>{fmt(row.bme688.pressure_hpa, 0)}</td>
                   <td>{fmt(row.bme688.gas_resistance_ohm, 0)}</td>
-                  <td>{fmt(row.max30102.heart_rate_bpm, 0)}</td>
+                  <td>{fmt(vecMagnitude(row.mpu6050.accel_g), 2)}</td>
+                  <td>{vecText(row.mpu6050.gyro_dps, 1)}</td>
+                  <td>{fmt(row.mq6.raw, 0)}</td>
                   <td>{row.fall.state === "distress" || row.fall.state === "possible" || row.fall.state === "grace" ? <Badge tone="alert">{row.fall.state}</Badge> : row.fall.state}</td>
                   <td>{row.gps.state === "none" ? "—" : row.gps.state === "fix" ? "fix" : "last known"}</td>
                   <td>{row.signature.status}</td>

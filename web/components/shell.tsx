@@ -11,6 +11,7 @@ import { BrandMark, Icon } from "./icons";
 
 const NAV = [
   { href: "/", label: "Overview", icon: "overview" as const },
+  { href: "/sensors", label: "Sensors", icon: "sensors" as const },
   { href: "/crew", label: "Crew", icon: "crew" as const },
   { href: "/incidents", label: "Incidents", icon: "incidents" as const },
   { href: "/log", label: "Packet log", icon: "log" as const },

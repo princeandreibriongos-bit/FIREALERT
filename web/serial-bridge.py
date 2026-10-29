@@ -22,7 +22,7 @@ from serial.tools import list_ports
 API_URL = "http://127.0.0.1:3000/api/telemetry"
 LINK_URL = "http://127.0.0.1:3000/api/link"
 HEARTBEAT = re.compile(
-    r"\[node-b\] heartbeat wifi=(up|down) ip=(\S+) ch=(\d+) mac=([0-9A-Fa-f:]+)(?: cellular=(\S+))?"
+    r"\[node-b\] heartbeat wifi=(up|down) ip=(\S+) ch=(\d+) mac=([0-9A-Fa-f:]+)(?: cellular=(\S+))?(?: ssid=(.*))?$"
 )
 BAUD = 115200
 NETWORK_PATH = Path(__file__).resolve().parent / "data" / "network.json"
@@ -55,20 +55,36 @@ def credentials_from(source: dict) -> tuple[str, str] | None:
     return ssid, password
 
 
-def load_router() -> tuple[str, str] | None:
+def load_saved() -> tuple[tuple[str, str] | None, list[tuple[str, str]]]:
     try:
         data = json.loads(NETWORK_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return None
+        return None, []
     if not isinstance(data, dict):
-        return None
-    active = data.get("active")
-    profile = data.get(active) if active in ("router", "hotspot") else None
-    if isinstance(profile, dict):
-        chosen = credentials_from(profile)
-        if chosen is not None:
-            return chosen
-    return credentials_from(data)
+        return None, []
+    profiles: list[tuple[str, str]] = []
+    for key in ("router", "hotspot"):
+        raw = data.get(key)
+        if isinstance(raw, dict):
+            creds = credentials_from(raw)
+            if creds is not None and creds not in profiles:
+                profiles.append(creds)
+    active_name = data.get("active")
+    active = None
+    if active_name in ("router", "hotspot") and isinstance(data.get(active_name), dict):
+        active = credentials_from(data[active_name])
+    if active is None:
+        active = credentials_from(data)
+    extras = [creds for creds in profiles if creds != active]
+    return active, extras
+
+
+def lookup_ssid(ssid: str) -> tuple[str, str] | None:
+    active, extras = load_saved()
+    for creds in [active, *extras]:
+        if creds is not None and creds[0] == ssid:
+            return creds
+    return None
 
 
 def wearable_ports(gateway: str) -> list[str]:
@@ -112,16 +128,28 @@ def push_router(ser: serial.Serial, state: dict) -> None:
     now = time.time()
     if now < state["next"]:
         return
-    creds = load_router()
-    state["next"] = now + (2 if state["pushes"] < 3 else 5)
-    if creds is None:
+    active, extras = load_saved()
+    signature = (active, tuple(extras))
+    changed = signature != state["last"]
+    down = state.get("wifi") != "up"
+    state["next"] = now + 2
+    if active is None and not extras:
         return
-    if creds != state["last"] or state["pushes"] < 3:
-        ser.write(f"wifi\t{creds[0]}\t{creds[1]}\n".encode("utf-8"))
-        print(f"sent router {creds[0]}", flush=True)
-        state["last"] = creds
-        state["pushes"] += 1
-        push_wearable(ser.port, creds, state)
+    if not changed and not down and state["pushes"] >= 1:
+        return
+    if not changed and down and state["pushes"] >= 1 and now < state.get("retry", 0):
+        state["next"] = state["retry"]
+        return
+    state["retry"] = now + 15
+    for creds in extras:
+        ser.write(f"also\t{creds[0]}\t{creds[1]}\n".encode("utf-8"))
+        print(f"sent saved {creds[0]}", flush=True)
+    if active is not None:
+        ser.write(f"wifi\t{active[0]}\t{active[1]}\n".encode("utf-8"))
+        print(f"sent router {active[0]}", flush=True)
+        push_wearable(ser.port, active, state)
+    state["last"] = signature
+    state["pushes"] += 1
 
 
 def post_json(url: str, payload: dict) -> int:
@@ -136,18 +164,26 @@ def post_json(url: str, payload: dict) -> int:
         return resp.status
 
 
-def post_heartbeat(match: re.Match[str]) -> None:
-    status = post_json(
-        LINK_URL,
-        {
-            "wifi": match.group(1),
-            "ip": match.group(2),
-            "channel": int(match.group(3)),
-            "mac": match.group(4),
-            "cellular": match.group(5) or "not-installed",
-        },
-    )
-    print(f"gateway wifi={match.group(1)} ip={match.group(2)} HTTP {status}", flush=True)
+def post_heartbeat(match: re.Match[str], gateway: str, state: dict) -> None:
+    wifi = match.group(1)
+    if wifi == "down" and state.get("wifi") != "down":
+        state["retry"] = time.time()
+    state["wifi"] = wifi
+    ssid = match.group(6)
+    payload: dict[str, object] = {
+        "wifi": wifi,
+        "ip": match.group(2),
+        "channel": int(match.group(3)),
+        "mac": match.group(4),
+        "cellular": match.group(5) or "not-installed",
+    }
+    if ssid and ssid != "-":
+        payload["ssid"] = ssid
+        creds = lookup_ssid(ssid)
+        if creds is not None:
+            push_wearable(gateway, creds, state)
+    status = post_json(LINK_URL, payload)
+    print(f"gateway wifi={wifi} ip={match.group(2)} HTTP {status}", flush=True)
 
 
 def post_payload(obj: dict) -> None:
@@ -166,7 +202,7 @@ def main() -> None:
     ser.rts = False
     ser.open()
     buf = b""
-    router_state = {"next": time.time() + 1, "pushes": 0, "last": None}
+    router_state = {"next": time.time() + 1, "pushes": 0, "last": None, "retry": 0, "wifi": "down"}
     while True:
         push_router(ser, router_state)
         chunk = ser.read(512)
@@ -179,7 +215,7 @@ def main() -> None:
             beat = HEARTBEAT.search(text)
             if beat:
                 try:
-                    post_heartbeat(beat)
+                    post_heartbeat(beat, port, router_state)
                 except (urllib.error.URLError, TimeoutError, OSError) as exc:
                     print(f"link post failed: {exc}", flush=True)
                 continue

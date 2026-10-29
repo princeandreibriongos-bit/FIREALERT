@@ -17,7 +17,7 @@ export function GatewayPage() {
       <PageHeader
         eyebrow="Field gateway"
         title="Gateway"
-        description="Save a room router or a phone hotspot. The gateway treats both as Wi-Fi. For a presentation, a hotspot plus the USB cable is enough."
+        description="Save a room router and a phone hotspot. The gateway joins the active one, and if that network is not in range it joins the other saved network."
       />
       <div className="split">
         <RouterForm />
@@ -32,6 +32,7 @@ export function GatewayPage() {
                 ? "No fresh heartbeat. Plug in the gateway and run npm run bridge."
                 : `${gateway?.ip ?? "No address"} · channel ${gateway?.channel ?? "—"} · ${gateway?.mac ?? "No MAC"} · ${gateway?.seen_at ? ageLabel(gateway.seen_at, now) : "—"}`}
             </p>
+            {gateway?.ssid ? <p className="card-note">Joined {gateway.ssid}.</p> : null}
             {reported ? <p className="card-note">Last packet named the network {reported}.</p> : null}
           </section>
           <section className="card">

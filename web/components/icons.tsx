@@ -1,6 +1,6 @@
 import type { ReactNode, SVGProps } from "react";
 
-type IconName = "overview" | "crew" | "incidents" | "log" | "gateway" | "system" | "search" | "menu";
+type IconName = "overview" | "sensors" | "crew" | "incidents" | "log" | "gateway" | "system" | "search" | "menu";
 
 const PATHS: Record<IconName, ReactNode> = {
   overview: (
@@ -9,6 +9,13 @@ const PATHS: Record<IconName, ReactNode> = {
       <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
       <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
       <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+    </>
+  ),
+  sensors: (
+    <>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3" />
+      <path d="m6.2 6.2 2.1 2.1M15.7 15.7l2.1 2.1M17.8 6.2l-2.1 2.1M8.3 15.7l-2.1 2.1" />
     </>
   ),
   crew: (

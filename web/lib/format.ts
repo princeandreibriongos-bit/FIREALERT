@@ -82,3 +82,8 @@ export function vecText(value: { x: number | null; y: number | null; z: number |
   if (!value) return "—";
   return [value.x, value.y, value.z].map((n) => (n == null ? "—" : n.toFixed(digits))).join("  ");
 }
+
+export function vecMagnitude(value: { x: number | null; y: number | null; z: number | null } | null): number | null {
+  if (!value || value.x == null || value.y == null || value.z == null) return null;
+  return Math.hypot(value.x, value.y, value.z);
+}
