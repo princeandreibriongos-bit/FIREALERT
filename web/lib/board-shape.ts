@@ -66,6 +66,7 @@ function parseIncidents(value: unknown): Incident[] {
     const record = item as Record<string, unknown>;
     if (typeof record.id !== "string" || typeof record.title !== "string" || typeof record.created_at !== "string") continue;
     if (record.status !== "open" && record.status !== "closed") continue;
+    const createdAt = record.created_at;
     incidents.push({
       id: record.id,
       title: record.title,
@@ -74,7 +75,13 @@ function parseIncidents(value: unknown): Incident[] {
       latitude: typeof record.latitude === "number" ? record.latitude : null,
       longitude: typeof record.longitude === "number" ? record.longitude : null,
       status: record.status,
-      created_at: record.created_at,
+      created_at: createdAt,
+      reported_at: typeof record.reported_at === "string" ? record.reported_at : createdAt,
+      created_by_user_id: typeof record.created_by_user_id === "string" ? record.created_by_user_id : null,
+      created_by_username: typeof record.created_by_username === "string" ? record.created_by_username : null,
+      closed_at: typeof record.closed_at === "string" ? record.closed_at : null,
+      caller_name: typeof record.caller_name === "string" ? record.caller_name : null,
+      caller_contact: typeof record.caller_contact === "string" ? record.caller_contact : null,
     });
   }
   return incidents;

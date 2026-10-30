@@ -357,7 +357,7 @@ export function airReading(latest: NormalizedTelemetry, history: NormalizedTelem
   const co2Then = prior?.scd40.installed ? prior.scd40.co2_ppm : null;
   const gasThen = prior?.bme688.installed ? prior.bme688.gas_resistance_ohm : null;
   const co2Delta = hasCo2 && co2Then != null ? co2Now - co2Then : null;
-  const co2Rising = co2Delta != null && (co2Delta >= 120 || (co2Now >= 1000 && co2Delta >= 60));
+  const co2Rising = co2Now != null && co2Delta != null && (co2Delta >= 120 || (co2Now >= 1000 && co2Delta >= 60));
   const co2High = hasCo2 && co2Now >= 5000;
   const co2Elevated = hasCo2 && co2Now >= 1000;
   const gasRatio = hasGas && gasThen != null && gasThen > 0 ? gasNow / gasThen : null;
@@ -411,7 +411,7 @@ export function airReading(latest: NormalizedTelemetry, history: NormalizedTelem
     kind: cue === "routine" ? "steady" : "occupied",
     tone: cue === "high" ? "alert" : cue === "elevated" ? "warn" : "ok",
     title: cue === "high" ? "CO₂ is high" : cue === "elevated" ? "CO₂ is elevated" : "CO₂ is in the routine range",
-    detail: `CO₂ is ${round(co2Now)} ppm from the SCD40. The BME688 has no gas sample to compare.${warmLine}`,
+    detail: `CO₂ is ${round(co2Now ?? 0)} ppm from the SCD40. The BME688 has no gas sample to compare.${warmLine}`,
   };
 }
 

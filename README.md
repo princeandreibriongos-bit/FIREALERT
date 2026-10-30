@@ -75,6 +75,17 @@ npm run dev
 
 Open http://localhost:3000
 
+The public landing page is open without login. Board routes (`/overview`, `/crew`, `/incidents`, and the rest of the shell) require a signed-in station account.
+
+### Demo admin login
+
+| Field | Value |
+| --- | --- |
+| Username | `admin` |
+| Password | `admin123` |
+
+Change this password before any real station deployment. Create additional users with `npm run user:create -- <username> <password>` from `web/`.
+
 `npm test` checks packet normalization, signature verification, route parsing, and router-field validation.
 
 If Windows Firewall blocks the ESP32 from POSTing to the PC, keep the gateway on USB and run:
@@ -87,11 +98,110 @@ That forwards Node B serial JSON to `/api/telemetry` and pushes the saved router
 
 Main routes:
 
+- `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/session`
 - `POST /api/telemetry` and `GET /api/telemetry`
 - `POST /api/demo` for the sample crew
 - `GET` and `PUT /api/network`
 - `GET` and `POST /api/incidents`, `PATCH /api/incidents/:id`
+- `GET /api/crew`
 - `GET /api/routes` for advisory driving options
+
+## Neon Postgres setup
+
+Login users, crew roster, incidents, local nodes, and telemetry history live in **Neon Postgres** (project console: [https://console.neon.tech](https://console.neon.tech)). The app uses Drizzle ORM with the `@neondatabase/serverless` HTTP driver and the pooled `DATABASE_URL`.
+
+### 1. Neon account and project (website)
+
+1. Open [https://console.neon.tech](https://console.neon.tech) and sign in (or create an account).
+2. Create or open an organization, then a Postgres project (this repo is linked to project `withered-boat-44245331` on branch `production` when using the team Neon account).
+3. In the project, open **Dashboard → Connection details**. Copy the **pooled** connection string (host contains `-pooler`) for runtime queries, and note the **direct** (non-pooler) URL for migrations if you pull both.
+
+You can also create a free project from scratch, then point this app at it with the CLI steps below.
+
+### 2. Neon CLI (recommended for this repo)
+
+From any machine with Node.js:
+
+```bash
+npm i -g neon@latest
+# if that fails: use npx neon@latest in place of neon below
+neon login
+```
+
+If `neon login` opens a browser, finish sign-in there. Then from the **repository root** (`FIREALERT/`):
+
+```bash
+npx neon skills -y
+neon init -y --org-id <YOUR_ORG_ID> --project-id <YOUR_PROJECT_ID> --branch production --services postgres
+neon deploy
+neon env pull --file web/.env.local -s postgres
+```
+
+`neon deploy` applies `neon.ts`. `neon env pull` writes `DATABASE_URL` and related vars into `web/.env.local`. Do not commit `.env.local`.
+
+Also set a session signing secret in `web/.env.local` (any long random string):
+
+```env
+SESSION_SECRET=replace-with-a-long-random-string
+```
+
+Org / project IDs for the existing FIREALERT Neon project:
+
+| Setting | Value |
+| --- | --- |
+| Org ID | `org-sweet-dust-25386727` |
+| Project ID | `withered-boat-44245331` |
+| Branch | `production` |
+
+Those values are also stored in `.neon` after `neon init`.
+
+### 3. Schema, seed, and admin user
+
+```bash
+cd web
+npm install
+npm run db:push
+npm run db:seed
+node --experimental-strip-types scripts/ensure-admin.ts
+npm run verify:neon
+```
+
+- `db:push` creates/updates tables from `web/lib/db/schema.ts` (users, crew_members, incidents, incident_assignments, local_nodes, telemetry_packets).
+- `db:seed` loads sample crew (FF-01 … FF-04) and a local node row.
+- `ensure-admin.ts` creates or resets the demo account **`admin` / `admin123`**.
+- `verify:neon` runs a live Postgres + auth probe.
+
+Then start the board:
+
+```bash
+npm run dev
+```
+
+Open http://localhost:3000 → use **Sign in** with `admin` / `admin123` → you should land on `/overview`.
+
+### 4. Manual connection string (no CLI)
+
+If you prefer the website only:
+
+1. Neon Console → your project → **Connect**.
+2. Choose the pooled connection string.
+3. Create `web/.env.local`:
+
+```env
+DATABASE_URL=postgresql://USER:PASSWORD@HOST-pooler/neondb?sslmode=require
+DATABASE_URL_UNPOOLED=postgresql://USER:PASSWORD@HOST/neondb?sslmode=require
+SESSION_SECRET=replace-with-a-long-random-string
+```
+
+4. Run the schema / seed / ensure-admin commands from section 3.
+
+### Env vars used by the app
+
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | Pooled Neon URL for Next.js API routes (required) |
+| `DATABASE_URL_UNPOOLED` | Direct URL (migrations / tooling; pulled by Neon CLI) |
+| `SESSION_SECRET` | Signs the JWT cookie for board login |
 
 ## Limits
 

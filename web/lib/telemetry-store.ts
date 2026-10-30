@@ -1,5 +1,6 @@
 import { appendSharedItem, boardBackend, noteItems, readRedisBoard, readSharedBoard, writeSharedItems } from "./shared-board";
 import { normalizeTelemetry, type NormalizedTelemetry, type RawTelemetry } from "./telemetry-core";
+import { persistTelemetryPacket } from "./telemetry-persist";
 import { signatureStatus } from "./verify";
 
 const MAX_LOGS = 250;
@@ -48,6 +49,11 @@ export async function saveTelemetry(raw: RawTelemetry | unknown, receivedAt = ne
     await persistTelemetry(entry);
   } catch (error) {
     console.error("[FIREALERT] shared log", error);
+  }
+  try {
+    if (entry) await persistTelemetryPacket(entry);
+  } catch (error) {
+    console.error("[FIREALERT] postgres telemetry", error);
   }
   return entry;
 }

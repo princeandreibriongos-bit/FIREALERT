@@ -84,12 +84,4 @@ export function Icon({ name, size = 18, ...props }: SVGProps<SVGSVGElement> & { 
   );
 }
 
-export function BrandMark() {
-  return (
-    <span className="brand-mark" aria-hidden>
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M12.2 2.2c.3 2.8-1.2 4.4-2.6 6-1.7 1.8-3.2 3.6-3.2 6.2 0 3.5 2.8 6.4 6.4 6.4s6.4-2.9 6.4-6.4c0-2.4-1.1-3.9-2.4-5.2-.2 1.6-1.1 2.6-2 2.6-1.5 0-2.1-1.3-2.1-2.6 0-2.2.1-4.6-.5-7z" />
-      </svg>
-    </span>
-  );
-}
+export { StationLogo as BrandMark } from "./station-logo";

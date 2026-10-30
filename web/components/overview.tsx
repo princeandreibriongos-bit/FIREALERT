@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { gatewayPhase, newestHardware, wearablePhase } from "@/lib/connection";
 import { airNeedsAttention, airReading, fallNeedsReview, linkState } from "@/lib/telemetry-core";
 import { ageLabel, fmt, manilaTime, vecMagnitude } from "@/lib/format";
 import { useBoard } from "./board-provider";
+import { IncidentCreateModal } from "./incident-create-modal";
 import { Badge, EmptyState, PageHeader } from "./ui";
 
 function readingLine(row: {
@@ -26,6 +28,7 @@ function fallLabel(state: string) {
 
 export function Overview() {
   const { items, error, crew, alerts, incidents, gateway, now, busy, loadSample } = useBoard();
+  const [createOpen, setCreateOpen] = useState(false);
   const live = crew.filter((person) => linkState(person.received_at, now) === "live").length;
   const stale = crew.filter((person) => linkState(person.received_at, now) !== "live");
   const air = crew.filter((person) => airNeedsAttention(airReading(person, items ?? []).kind));
@@ -262,9 +265,9 @@ export function Overview() {
             <section className="card">
               <div className="card-head">
                 <h2 className="card-title">Open incidents</h2>
-                <Link className="btn btn-ghost" href="/incidents/new">
+                <button type="button" className="btn btn-ghost" onClick={() => setCreateOpen(true)}>
                   Log incident
-                </Link>
+                </button>
               </div>
               {open.length === 0 ? <p className="fine">No open incidents.</p> : null}
               <ul className="mini-list">
@@ -314,6 +317,8 @@ export function Overview() {
           </aside>
         </div>
       ) : null}
+
+      <IncidentCreateModal open={createOpen} onClose={() => setCreateOpen(false)} />
     </div>
   );
 }

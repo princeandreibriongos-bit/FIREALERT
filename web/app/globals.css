@@ -1,19 +1,23 @@
 :root {
   color-scheme: dark;
-  --bg: #090b10;
-  --sidebar: rgba(12, 14, 18, 0.92);
-  --surface: #131820;
-  --surface-2: #1a212c;
-  --surface-3: #222b38;
-  --line: rgba(236, 226, 206, 0.08);
-  --line-strong: rgba(236, 226, 206, 0.16);
-  --text: #f4f1ea;
-  --muted: #9aa3b2;
-  --faint: #6e7886;
+  /* New Makati Central Fire Station / BFP seal: navy, crimson, gold */
+  --bg: #071018;
+  --sidebar: rgba(8, 16, 28, 0.82);
+  --surface: rgba(16, 26, 40, 0.82);
+  --surface-2: rgba(24, 36, 52, 0.88);
+  --surface-3: rgba(34, 48, 68, 0.92);
+  --line: rgba(236, 226, 206, 0.1);
+  --line-strong: rgba(226, 177, 90, 0.28);
+  --text: #f6f1e8;
+  --muted: #b4becc;
+  --faint: #8490a0;
   --brass: #e2b15a;
   --brass-deep: #c4923a;
   --brass-ink: #1c1408;
-  --brass-dim: rgba(226, 177, 90, 0.14);
+  --brass-dim: rgba(226, 177, 90, 0.16);
+  --crimson: #c62828;
+  --crimson-deep: #8e1b1b;
+  --navy: #0b1f3a;
   --info: #9ebfff;
   --ok: #3dcc8e;
   --ok-dim: rgba(61, 204, 142, 0.14);
@@ -23,9 +27,9 @@
   --alert-dim: rgba(255, 109, 109, 0.14);
   --radius: 16px;
   --radius-sm: 10px;
-  --shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
-  --sidebar-w: 248px;
-  --topbar-h: 72px;
+  --shadow: 0 16px 40px rgba(0, 0, 0, 0.34);
+  --sidebar-w: 268px;
+  --topbar-h: 76px;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -40,13 +44,35 @@ body {
 }
 
 body {
-  background:
-    radial-gradient(880px 420px at -10% -10%, rgba(226, 177, 90, 0.1), transparent 55%),
-    radial-gradient(720px 380px at 110% -5%, rgba(158, 191, 255, 0.07), transparent 48%),
-    var(--bg);
+  background: var(--bg);
   color: var(--text);
   font-family: var(--font-dm), "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+.station-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none !important;
+  background-color: #071018;
+  background-image:
+    linear-gradient(160deg, rgba(7, 16, 24, 0.78) 0%, rgba(11, 31, 58, 0.7) 45%, rgba(142, 27, 27, 0.42) 100%),
+    radial-gradient(900px 480px at 8% -8%, rgba(226, 177, 90, 0.14), transparent 55%),
+    radial-gradient(760px 420px at 100% 0%, rgba(198, 40, 40, 0.14), transparent 50%),
+    url("/station-bg.jpg");
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  /* Blur the photo itself — do not use a full-screen ::after (it steals clicks in some browsers). */
+  filter: blur(2px);
+  transform: scale(1.03);
+  transform-origin: center;
+}
+
+.app-shell > *:not(.station-backdrop),
+.landing > *:not(.station-backdrop) {
+  z-index: 1;
 }
 
 button,
@@ -91,6 +117,9 @@ a {
 }
 
 .app-shell {
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
   min-height: 100vh;
   display: grid;
   grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
@@ -104,9 +133,8 @@ a {
   flex-direction: column;
   gap: 22px;
   padding: 22px 14px 18px;
-  background: var(--sidebar);
+  background: rgba(8, 16, 28, 0.94);
   border-right: 1px solid var(--line);
-  backdrop-filter: blur(18px);
   z-index: 40;
 }
 
@@ -117,15 +145,38 @@ a {
   padding: 0 8px;
 }
 
+.station-logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: contain;
+  object-position: center;
+  padding: 2px;
+  background: #fff;
+  box-shadow:
+    0 0 0 2px rgba(226, 177, 90, 0.55),
+    0 8px 22px rgba(0, 0, 0, 0.35);
+  flex-shrink: 0;
+  display: block;
+}
+
+.station-logo-sm {
+  width: 36px;
+  height: 36px;
+}
+
+.station-logo-lg {
+  width: 72px;
+  height: 72px;
+}
+
 .brand-mark {
   width: 40px;
   height: 40px;
-  border-radius: 12px;
+  border-radius: 50%;
   display: grid;
   place-items: center;
-  color: var(--brass-ink);
-  background: linear-gradient(160deg, #f0cb86 0%, var(--brass) 48%, var(--brass-deep) 100%);
-  box-shadow: 0 8px 20px rgba(226, 177, 90, 0.22);
+  overflow: hidden;
 }
 
 .brand-name,
@@ -142,7 +193,17 @@ a {
 .brand-sub {
   margin-top: 2px;
   color: var(--faint);
-  font-size: 0.75rem;
+  font-size: 0.68rem;
+  line-height: 1.25;
+  max-width: 11.5rem;
+}
+
+.side-brand-foot {
+  margin-top: auto;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 0 8px;
 }
 
 .side-nav {
@@ -213,11 +274,11 @@ a {
 }
 
 .side-foot {
-  margin-top: auto;
-  padding: 12px;
+  margin: 0;
+  padding: 0;
   color: var(--faint);
-  font-size: 0.75rem;
-  line-height: 1.5;
+  font-size: 0.72rem;
+  line-height: 1.45;
 }
 
 .workspace {
@@ -236,14 +297,21 @@ a {
   align-items: center;
   gap: 16px;
   padding: 14px 28px;
-  background: rgba(9, 11, 16, 0.78);
+  background: rgba(8, 16, 28, 0.94);
   border-bottom: 1px solid var(--line);
-  backdrop-filter: blur(16px);
 }
 
 .menu-btn,
 .scrim {
   display: none;
+}
+
+.topbar-brand {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .topbar-station {
@@ -513,10 +581,13 @@ a {
 .empty-state,
 .person-card,
 .incident-card {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 42%), var(--surface);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 42%),
+    rgba(12, 22, 36, 0.72);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
+  backdrop-filter: blur(14px);
 }
 
 .kpi {
@@ -957,15 +1028,22 @@ a {
   font-weight: 680;
   font-size: 0.88rem;
   cursor: pointer;
-  transition: transform 0.15s var(--ease), background 0.2s var(--ease), border-color 0.2s var(--ease);
+  transition:
+    transform 0.14s var(--ease),
+    background 0.2s var(--ease),
+    border-color 0.2s var(--ease),
+    box-shadow 0.2s var(--ease),
+    filter 0.2s var(--ease);
 }
 
 .btn:hover:not(:disabled) {
   border-color: rgba(255, 255, 255, 0.22);
+  transform: translateY(-1px);
 }
 
 .btn:active:not(:disabled) {
-  transform: translateY(1px);
+  transform: translateY(1px) scale(0.98);
+  filter: brightness(0.96);
 }
 
 .btn:disabled {
@@ -974,10 +1052,10 @@ a {
 }
 
 .btn-primary {
-  background: linear-gradient(180deg, #f0cb86, var(--brass) 45%, var(--brass-deep));
+  background: linear-gradient(180deg, #efd087, var(--brass) 42%, var(--brass-deep));
   color: var(--brass-ink);
   border-color: transparent;
-  box-shadow: 0 8px 18px rgba(226, 177, 90, 0.18);
+  box-shadow: 0 8px 18px rgba(226, 177, 90, 0.22);
 }
 
 .btn-primary:hover:not(:disabled) {
@@ -1378,6 +1456,229 @@ code {
 @media (max-width: 1100px) and (min-width: 861px) {
   .kpi-grid {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+.modal-root,
+.login-modal-root {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.modal-scrim,
+.login-modal-scrim {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(4, 10, 18, 0.66);
+  cursor: pointer;
+}
+
+.modal-panel,
+.login-modal {
+  position: relative;
+  z-index: 1;
+  width: min(420px, 100%);
+  padding: 0;
+  max-height: min(90vh, 860px);
+  overflow: auto;
+  animation: modal-rise 0.28s var(--ease);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.login-modal {
+  padding: 28px;
+}
+
+.modal-panel.is-wide {
+  width: min(640px, 100%);
+}
+
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px 0;
+}
+
+.modal-title {
+  margin: 6px 0 0;
+  font-size: 1.35rem;
+  letter-spacing: -0.03em;
+}
+
+.modal-body {
+  padding: 18px 24px 24px;
+}
+
+.modal-actions {
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.modal-x {
+  flex-shrink: 0;
+}
+
+.login-modal-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.login-modal-close {
+  width: 100%;
+  margin-top: 12px;
+}
+
+@keyframes modal-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.user-menu {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
+}
+
+.user-name {
+  font-size: 0.88rem;
+  color: var(--muted);
+  font-family: var(--font-plex), monospace;
+}
+
+.btn-sm {
+  min-height: 34px;
+  padding: 6px 12px;
+  font-size: 0.86rem;
+}
+
+.landing {
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.landing-top {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 28px;
+  background: rgba(8, 16, 28, 0.88);
+  border-bottom: 1px solid var(--line);
+}
+
+.landing-top .btn {
+  flex-shrink: 0;
+}
+
+.landing-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.landing-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.landing-main {
+  width: min(1080px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 36px 0 48px;
+  display: grid;
+  gap: 18px;
+}
+
+.landing-hero {
+  padding: 32px 28px;
+}
+
+.landing-hero h1 {
+  margin: 10px 0 0;
+  font-size: clamp(1.8rem, 3vw, 2.6rem);
+  letter-spacing: -0.03em;
+  max-width: 18ch;
+}
+
+.landing-lead {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 1.05rem;
+  line-height: 1.6;
+  max-width: 58ch;
+}
+
+.landing-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.landing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.landing-card,
+.landing-notice {
+  padding: 22px;
+}
+
+.landing-foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 28px 28px;
+  border-top: 1px solid var(--line);
+  background: rgba(8, 16, 28, 0.55);
+}
+
+@media (max-width: 900px) {
+  .landing-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-top {
+    padding: 14px 16px;
+  }
+
+  .landing-main {
+    width: min(100% - 32px, 1080px);
+    padding-top: 24px;
+  }
+
+  .landing-hero {
+    padding: 24px 18px;
   }
 }
 

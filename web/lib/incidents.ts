@@ -7,6 +7,12 @@ export type Incident = {
   longitude: number | null;
   status: "open" | "closed";
   created_at: string;
+  reported_at: string;
+  created_by_user_id: string | null;
+  created_by_username: string | null;
+  closed_at: string | null;
+  caller_name: string | null;
+  caller_contact: string | null;
 };
 
 export type IncidentDraft = {
@@ -15,6 +21,9 @@ export type IncidentDraft = {
   notes: string;
   latitude: number | null;
   longitude: number | null;
+  reported_at?: string | null;
+  caller_name?: string | null;
+  caller_contact?: string | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -24,6 +33,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function text(value: unknown, max: number): string {
   if (typeof value !== "string") return "";
   return value.trim().slice(0, max);
+}
+
+function optionalText(value: unknown, max: number): string | null {
+  const next = text(value, max);
+  return next || null;
 }
 
 function coord(value: unknown): number | null | undefined {
@@ -51,7 +65,26 @@ export function parseIncidentInput(body: unknown): { ok: true; value: IncidentDr
   if (latitude != null && longitude != null && (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180)) {
     return { ok: false, error: "Coordinates are out of range" };
   }
-  return { ok: true, value: { title, address, notes, latitude, longitude } };
+
+  const reportedRaw = optionalText(body.reported_at, 40);
+  if (reportedRaw) {
+    const parsed = Date.parse(reportedRaw);
+    if (Number.isNaN(parsed)) return { ok: false, error: "reported_at must be a valid date-time" };
+  }
+
+  return {
+    ok: true,
+    value: {
+      title,
+      address,
+      notes,
+      latitude,
+      longitude,
+      reported_at: reportedRaw,
+      caller_name: optionalText(body.caller_name, 80),
+      caller_contact: optionalText(body.caller_contact, 40),
+    },
+  };
 }
 
 const globalStore = globalThis as typeof globalThis & { __firealertIncidents?: Incident[] };
@@ -65,12 +98,23 @@ export function listIncidents(): Incident[] {
   return incidents();
 }
 
-export function addIncident(draft: IncidentDraft): Incident {
+export function addIncident(draft: IncidentDraft, actor?: { id: string; username: string } | null): Incident {
+  const now = new Date().toISOString();
   const incident: Incident = {
     id: `inc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
-    ...draft,
+    title: draft.title,
+    address: draft.address,
+    notes: draft.notes,
+    latitude: draft.latitude,
+    longitude: draft.longitude,
     status: "open",
-    created_at: new Date().toISOString(),
+    created_at: now,
+    reported_at: draft.reported_at || now,
+    created_by_user_id: actor?.id ?? null,
+    created_by_username: actor?.username ?? null,
+    closed_at: null,
+    caller_name: draft.caller_name ?? null,
+    caller_contact: draft.caller_contact ?? null,
   };
   incidents().unshift(incident);
   return incident;
@@ -80,6 +124,7 @@ export function setIncidentStatus(id: string, status: "open" | "closed"): Incide
   const incident = incidents().find((item) => item.id === id);
   if (!incident) return null;
   incident.status = status;
+  incident.closed_at = status === "closed" ? new Date().toISOString() : null;
   return incident;
 }
 

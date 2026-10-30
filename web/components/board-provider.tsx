@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Incident } from "@/lib/incidents";
 import type { GatewayLink } from "@/lib/link-status";
@@ -37,6 +38,8 @@ export function useBoard(): BoardValue {
 }
 
 export function BoardProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const onLanding = pathname === "/";
   const [items, setItems] = useState<NormalizedTelemetry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [incidents, setIncidents] = useState<Incident[]>([]);
@@ -62,6 +65,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (onLanding) return;
     void refreshBoard();
     const boardTimer = setInterval(() => void refreshBoard(), 3000);
     const clock = setInterval(() => setNow(Date.now()), 1000);
@@ -69,7 +73,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
       clearInterval(boardTimer);
       clearInterval(clock);
     };
-  }, [refreshBoard]);
+  }, [onLanding, refreshBoard]);
 
   const crew = useMemo(() => latestByWearer(items ?? []), [items]);
   const alerts = useMemo(() => crew.filter((person) => fallNeedsReview(person.fall.state)), [crew]);

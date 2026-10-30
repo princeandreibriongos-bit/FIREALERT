@@ -1,16 +1,35 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { manilaTime } from "@/lib/format";
 import { useBoard } from "./board-provider";
 import { Icon } from "./icons";
+import { IncidentCreateModal } from "./incident-create-modal";
 import { Badge, EmptyState, PageHeader } from "./ui";
 
-export function IncidentsBoard() {
+function IncidentsBoardInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { incidents, incidentsReady } = useBoard();
   const [mode, setMode] = useState<"open" | "closed">("open");
   const [query, setQuery] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get("new") === "1") setCreateOpen(true);
+  }, [searchParams]);
+
+  function closeCreate() {
+    setCreateOpen(false);
+    if (searchParams.get("new") === "1") {
+      const next = new URLSearchParams(searchParams.toString());
+      next.delete("new");
+      const queryString = next.toString();
+      router.replace(queryString ? `/incidents?${queryString}` : "/incidents");
+    }
+  }
 
   const counts = useMemo(
     () => ({
@@ -33,9 +52,9 @@ export function IncidentsBoard() {
         title="Incidents"
         description="Log an address, then open it for advisory driving options from the station. Routes do not choose a tactic."
         actions={
-          <Link className="btn btn-primary" href="/incidents/new">
+          <button type="button" className="btn btn-primary" onClick={() => setCreateOpen(true)}>
             New incident
-          </Link>
+          </button>
         }
       />
 
@@ -62,9 +81,9 @@ export function IncidentsBoard() {
           body={mode === "open" ? "Create one when an address needs a route from the station." : "Closed incidents stay here for reference."}
           action={
             mode === "open" ? (
-              <Link className="btn btn-primary" href="/incidents/new">
+              <button type="button" className="btn btn-primary" onClick={() => setCreateOpen(true)}>
                 New incident
-              </Link>
+              </button>
             ) : undefined
           }
         />
@@ -78,10 +97,23 @@ export function IncidentsBoard() {
               <Badge tone={incident.status === "open" ? "brand" : "wait"}>{incident.status}</Badge>
             </div>
             <span>{incident.address}</span>
-            <p className="person-meta">{manilaTime(incident.created_at)} PHT</p>
+            <p className="person-meta">
+              {manilaTime(incident.reported_at || incident.created_at)} PHT
+              {incident.created_by_username ? ` · ${incident.created_by_username}` : ""}
+            </p>
           </Link>
         ))}
       </div>
+
+      <IncidentCreateModal open={createOpen} onClose={closeCreate} />
     </div>
+  );
+}
+
+export function IncidentsBoard() {
+  return (
+    <Suspense fallback={<div className="page"><p className="fine">Loading incidents…</p></div>}>
+      <IncidentsBoardInner />
+    </Suspense>
   );
 }

@@ -145,11 +145,25 @@ export function IncidentDetail({ incidentId }: { incidentId: string }) {
           <p className="fine">{incident.notes || "No notes."}</p>
           <div className="metrics">
             <div className="metric">
-              <p className="metric-label">Logged</p>
+              <p className="metric-label">Call time</p>
               <p className="metric-value" style={{ fontSize: "0.95rem" }}>
-                {manilaTime(incident.created_at)}
+                {manilaTime(incident.reported_at || incident.created_at)}
               </p>
               <p className="metric-detail">Philippine time</p>
+            </div>
+            <div className="metric">
+              <p className="metric-label">Created by</p>
+              <p className="metric-value" style={{ fontSize: "0.95rem" }}>
+                {incident.created_by_username || "—"}
+              </p>
+              <p className="metric-detail">Station account</p>
+            </div>
+            <div className="metric">
+              <p className="metric-label">Caller</p>
+              <p className="metric-value" style={{ fontSize: "0.95rem" }}>
+                {incident.caller_name || "—"}
+              </p>
+              <p className="metric-detail">{incident.caller_contact || "No contact on file"}</p>
             </div>
             <div className="metric">
               <p className="metric-label">Map point</p>

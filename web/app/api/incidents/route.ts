@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getRequestSession } from "@/lib/auth/request-session";
 import { geocodeAddress } from "@/lib/geocode";
 import { createIncident, loadIncidentList } from "@/lib/incident-store";
 import { parseIncidentInput } from "@/lib/incidents";
@@ -10,6 +11,11 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const session = await getRequestSession();
+  if (!session) {
+    return NextResponse.json({ ok: false, error: "Sign in to log an incident" }, { status: 401 });
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -36,6 +42,6 @@ export async function POST(request: NextRequest) {
     geocoded = true;
   }
 
-  const incident = await createIncident(draft);
+  const incident = await createIncident(draft, { id: session.sub, username: session.username });
   return NextResponse.json({ ok: true, incident, geocoded });
 }

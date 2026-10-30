@@ -3,3 +3,6 @@
 **/.next/
 **/.vscode/
 *.log
+.neon
+node_modules/
+.env.local

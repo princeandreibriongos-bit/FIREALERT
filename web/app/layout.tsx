@@ -18,8 +18,9 @@ const mono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "FIREALERT",
+  title: "FIREALERT · New Makati Central Fire Station",
   description: "Firefighter wearable monitoring board for the New Makati Central Fire Station prototype",
+  icons: { icon: "/logo.jpg" },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
