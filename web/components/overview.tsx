@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { gatewayPhase, newestHardware, wearablePhase } from "@/lib/connection";
 import { airNeedsAttention, airReading, fallNeedsReview, linkState } from "@/lib/telemetry-core";
-import { ageLabel, fmt, manilaTime, vecMagnitude } from "@/lib/format";
+import { ageLabel, activityLabel, fmt, manilaTime, vecMagnitude } from "@/lib/format";
 import { useBoard } from "./board-provider";
 import { IncidentCreateModal } from "./incident-create-modal";
 import { Badge, EmptyState, PageHeader } from "./ui";
@@ -76,7 +76,17 @@ export function Overview() {
         <dl className="link-facts">
           <div>
             <dt>Gateway</dt>
-            <dd>{gatewayState === "up" ? "Wi-Fi up" : gatewayState === "down" ? "Wi-Fi down" : "Waiting"}</dd>
+            <dd>
+              {gatewayState === "up"
+                ? "Wi-Fi up"
+                : gatewayState === "down"
+                  ? gateway?.detail === "bad_password"
+                    ? "Wi-Fi down (password?)"
+                    : gateway?.detail === "not_in_range" || gateway?.detail === "ssid_not_found"
+                      ? "Wi-Fi down (not in range)"
+                      : "Wi-Fi down"
+                  : "Waiting (USB)"}
+            </dd>
           </div>
           <div>
             <dt>Address</dt>
@@ -116,6 +126,15 @@ export function Overview() {
               <p className="metric-value">{fmt(vecMagnitude(hardware.mpu6050.accel_g), 2, " g")}</p>
               <p className="metric-detail">Total acceleration. About 1 g when the sensor is still.</p>
             </Link>
+            <div className="metric">
+              <p className="metric-label">Activity</p>
+              <p className="metric-value">{activityLabel(hardware.activity?.label)}</p>
+              <p className="metric-detail">
+                {hardware.activity?.score != null && hardware.activity.label !== "waiting"
+                  ? `${Math.round(hardware.activity.score * 100)}% confidence`
+                  : "Needs about 20 seconds of motion before the first label."}
+              </p>
+            </div>
             <Link className="metric" href="/sensors?sensor=mq6">
               <p className="metric-label">MQ-6</p>
               <p className="metric-value">{fmt(hardware.mq6.raw, 0)}</p>

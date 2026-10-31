@@ -42,7 +42,7 @@ On the board, open **Router**, enter the Wi-Fi name and password, and click **Sa
 
 Then either:
 
-- Plug in the gateway and run `npm run bridge`. The bridge sends the saved router over USB.
+- Plug in the gateway and run `npm run bridge`. It auto-finds the COM port (no `COMx` needed) and sends the saved router over USB.
 - Leave the gateway online. About every 20 seconds it reads `GET /api/network` and joins the saved router.
 
 Flash Node A and Node B once with this firmware so they can store the router. After that flash, later router changes are only the form. `config.h` is used only on a board that has never saved credentials. Do not commit a real Wi-Fi password.
@@ -94,7 +94,7 @@ If Windows Firewall blocks the ESP32 from POSTing to the PC, keep the gateway on
 npm run bridge
 ```
 
-That forwards Node B serial JSON to `/api/telemetry` and pushes the saved router to the board.
+That auto-finds the gateway COM port, forwards Node B serial JSON to `/api/telemetry`, and pushes the saved router to the board. Optional override: `python serial-bridge.py COM7`.
 
 Main routes:
 

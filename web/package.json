@@ -2,13 +2,16 @@
   "name": "firealert-web",
   "private": true,
   "scripts": {
-    "dev": "next dev --hostname 0.0.0.0 --port 3000",
-    "bridge": "python serial-bridge.py COM5",
+    "dev": "next dev --turbopack --hostname 0.0.0.0 --port 3000",
+    "dev:webpack": "next dev --hostname 0.0.0.0 --port 3000",
+    "bridge": "node scripts/run-bridge.mjs",
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "db:push": "drizzle-kit push",
     "db:seed": "node --experimental-strip-types scripts/seed-roster.ts",
     "user:create": "node --experimental-strip-types scripts/create-user.ts",
     "verify:neon": "node --experimental-strip-types scripts/verify-neon.ts",
+    "dataset:list": "node --experimental-strip-types scripts/export-mpu-csv.ts --list",
+    "dataset:export": "node --experimental-strip-types scripts/export-mpu-csv.ts",
     "build": "next build",
     "start": "next start --hostname 0.0.0.0 --port 3000"
   },

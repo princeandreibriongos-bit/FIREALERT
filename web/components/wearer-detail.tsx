@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ageLabel, fmt, manilaTime, uiLabel, vecText } from "@/lib/format";
+import { ageLabel, activityDetail, activityLabel, fmt, manilaTime, uiLabel, vecText } from "@/lib/format";
 import { airReading, co2Cue, fallNeedsReview, linkState, type NormalizedTelemetry } from "@/lib/telemetry-core";
 import { useBoard } from "./board-provider";
 import { Badge, EmptyState, Metric, SensorStatus } from "./ui";
@@ -139,6 +139,9 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
             <Badge tone={link === "live" ? "live" : "caution"} pulse={link === "live"}>
               {link === "live" ? "Live link" : "Stale link"}
             </Badge>
+            <Badge tone={packet.activity?.label && packet.activity.label !== "waiting" ? "live" : "wait"}>
+              {activityLabel(packet.activity?.label)}
+            </Badge>
             <Badge tone={packet.signature.status === "valid" ? "live" : packet.signature.status === "invalid" ? "alert" : "wait"}>
               {signatureLabel(packet.signature.status)}
             </Badge>
@@ -180,6 +183,11 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
               <Metric label="Heart rate" value={fmt(packet.max30102.heart_rate_bpm, 0, " bpm")} />
               <Metric label="Estimated SpO₂" value={fmt(packet.max30102.spo2_percent, 0, "%")} />
               <Metric label="Signal" value={fmt(packet.rssi_dbm, 0, " dBm")} detail={packet.gateway || "Gateway"} />
+              <Metric
+                label="Motion"
+                value={activityLabel(packet.activity?.label)}
+                detail={activityDetail(packet.activity?.label, packet.activity?.score)}
+              />
             </div>
           </div>
         ) : null}
@@ -265,7 +273,7 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
             <div className="card-head">
               <div className={`callout ${reviewing ? "is-alert" : "is-ok"}`} style={{ flex: 1 }}>
                 <p>{fallCopy(packet)}</p>
-                <p className="fine">Model slot: {packet.fall.model}. A cue is for a person to review. The Edge Impulse model is not deployed.</p>
+                <p className="fine">Model: {packet.fall.model}. Motion class comes from the shoulder MPU. Fall cues are still a separate review.</p>
               </div>
               {hardwareBadge(packet.mpu6050.installed, packet.mpu6050.accel_g != null)}
             </div>
@@ -273,6 +281,11 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
               <p className="fine">MPU-6050 is not answering on GPIO 8 and 9.</p>
             )}
             <div className="metrics">
+              <Metric
+                label="Motion"
+                value={activityLabel(packet.activity?.label)}
+                detail={activityDetail(packet.activity?.label, packet.activity?.score)}
+              />
               <Metric label="Accel g  x y z" value={vecText(packet.mpu6050.accel_g)} />
               <Metric label="Gyro dps  x y z" value={vecText(packet.mpu6050.gyro_dps)} />
             </div>

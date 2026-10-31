@@ -142,10 +142,11 @@ inline bool saveWifiCreds(const char *ssid, const char *password) {
 }
 
 // One serial line per call. `used` keeps a partial line between calls.
-inline bool takeSerialLine(char *buf, size_t cap, size_t &used) {
+// Pass FASerial (CDC+UART0) on Node B so CH343 boards work with the USB bridge.
+inline bool takeSerialLine(Stream &stream, char *buf, size_t cap, size_t &used) {
   if (buf == nullptr || cap < 2) return false;
-  while (Serial.available() > 0) {
-    const char c = static_cast<char>(Serial.read());
+  while (stream.available() > 0) {
+    const char c = static_cast<char>(stream.read());
     if (c == '\n' || c == '\r') {
       if (used == 0) continue;
       buf[used] = '\0';
@@ -155,6 +156,10 @@ inline bool takeSerialLine(char *buf, size_t cap, size_t &used) {
     if (used + 1 < cap) buf[used++] = c;
   }
   return false;
+}
+
+inline bool takeSerialLine(char *buf, size_t cap, size_t &used) {
+  return takeSerialLine(Serial, buf, cap, used);
 }
 
 // "wifi" makes that network the one to join. "also" only remembers it.

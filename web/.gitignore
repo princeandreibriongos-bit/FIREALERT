@@ -5,6 +5,7 @@ out
 *.log
 *.tsbuildinfo
 data/network.json
+data/bridge-port.json
 .env.local
 .env*.local
 __pycache__/

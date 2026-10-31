@@ -52,6 +52,17 @@ export function ageLabel(iso: string, now: number): string {
   return `${Math.round(minutes / 60)} h ago`;
 }
 
+/** Display name for an on-device motion class. New labels pass through unchanged. */
+export function activityLabel(label: string | undefined | null): string {
+  if (!label || label === "waiting") return "Waiting";
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+export function activityDetail(label: string | undefined | null, score: number | null | undefined): string {
+  if (!label || label === "waiting" || score == null) return "Collecting a motion window";
+  return `${Math.round(score * 100)}% confidence`;
+}
+
 export function formatDuration(seconds: number): string {
   const total = Math.max(0, Math.round(seconds));
   const hours = Math.floor(total / 3600);

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
-import { ageLabel, fmt } from "@/lib/format";
+import { ageLabel, activityLabel, fmt } from "@/lib/format";
 import { airReading, co2Cue, fallNeedsReview, linkState, type NormalizedTelemetry } from "@/lib/telemetry-core";
 import { useBoard } from "./board-provider";
 import { Icon } from "./icons";
@@ -114,6 +114,9 @@ export function CrewBoard() {
                 <span className="person-id">{person.wearer_id}</span>
                 <span className="badge-row">
                   {fallNeedsReview(person.fall.state) ? <Badge tone="alert">{person.fall.state}</Badge> : null}
+                  <Badge tone={person.activity?.label && person.activity.label !== "waiting" ? "live" : "wait"}>
+                    {activityLabel(person.activity?.label)}
+                  </Badge>
                   <Badge tone={link === "live" ? "live" : "caution"} pulse={link === "live"}>
                     {link === "live" ? "Live" : "Stale"}
                   </Badge>
@@ -154,8 +157,8 @@ export function CrewBoard() {
                   <dd>{fmt(person.bme688.gas_resistance_ohm, 0, " Ω")}</dd>
                 </div>
                 <div>
-                  <dt>MPU-6050</dt>
-                  <dd>{person.mpu6050.installed ? "detected" : "—"}</dd>
+                  <dt>Motion</dt>
+                  <dd>{activityLabel(person.activity?.label)}</dd>
                 </div>
                 <div>
                   <dt>MQ-6</dt>

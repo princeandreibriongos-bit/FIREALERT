@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "config.h"
+#include "ei_activity.h"
 #include "wifi_store.h"
 
 static SensirionI2cScd4x g_scd4x;
@@ -115,8 +116,44 @@ static bool pollFallCommand() {
   return fired;
 }
 
-// Edge Impulse TinyML slot. No model is linked, so this never fires on motion.
-static bool predictFall(const WearableReadings &) { return false; }
+// Edge Impulse is not linked. Use a simple freefall→impact / hard-tumble cue so a
+// throw shows up immediately in telemetry without waiting on air sensors.
+static bool predictFall(const WearableReadings &in) {
+  if (!in.mpu6050) return false;
+  const float ax = in.accel_x;
+  const float ay = in.accel_y;
+  const float az = in.accel_z;
+  const float mag = sqrtf(ax * ax + ay * ay + az * az);
+  const float gyro =
+      fabsf(in.gyro_x) + fabsf(in.gyro_y) + fabsf(in.gyro_z);
+
+  static bool sawFreefall = false;
+  static uint32_t freefallMs = 0;
+  const uint32_t now = millis();
+
+  if (mag < FALL_FREEFALL_G) {
+    if (!sawFreefall) {
+      sawFreefall = true;
+      freefallMs = now;
+    }
+    return false;
+  }
+
+  if (sawFreefall) {
+    const bool recent = (now - freefallMs) < 1500;
+    sawFreefall = false;
+    if (recent && mag >= FALL_IMPACT_G) {
+      Serial.printf("[node-a] fall cue impact g=%.2f\n", mag);
+      return true;
+    }
+  }
+
+  if (gyro >= FALL_TUMBLE_GYRO_DPS && mag >= FALL_TUMBLE_ACCEL_G) {
+    Serial.printf("[node-a] fall cue tumble g=%.2f gyro=%.0f\n", mag, gyro);
+    return true;
+  }
+  return false;
+}
 
 static bool cancelHeld() {
   if (!CANCEL_BUTTON_ENABLED) {
@@ -220,12 +257,31 @@ static void publishLastScd(WearableReadings &out) {
 }
 
 static void readScd40(WearableReadings &out) {
-  if (!g_scd40Ready) return;
-  // SCD40 stretches the clock while it answers. A short timeout looks like a missing sensor.
-  Wire.setTimeOut(200);
+  if (!g_scd40Ready) {
+    // Leave blank (NaN) — motion packets must not wait for CO2.
+    return;
+  }
+  Wire.setTimeOut(50);
   const uint32_t now = millis();
-  if (g_scdArmedMs != 0 && now - g_scdArmedMs < 5000) {
+  if (g_scdArmedMs != 0 && now - g_scdArmedMs < 4500) {
     publishLastScd(out);
+    return;
+  }
+  bool ready = false;
+  const int16_t readyErr = g_scd4x.getDataReadyStatus(ready);
+  if (readyErr || !ready) {
+    publishLastScd(out);
+    if (now - g_scdLogMs > 8000) {
+      Serial.printf("[node-a] SCD40 not ready (err %d) — blanking until next hit\n", readyErr);
+      g_scdLogMs = now;
+    }
+    if (++g_scdErrors >= 6) {
+      g_scd4x.stopPeriodicMeasurement();
+      const int16_t startError = g_scd4x.startPeriodicMeasurement();
+      g_scdErrors = 0;
+      g_scdArmedMs = millis();
+      Serial.printf("[node-a] SCD40 rearm %d\n", startError);
+    }
     return;
   }
   uint16_t co2 = 0;
@@ -239,31 +295,19 @@ static void readScd40(WearableReadings &out) {
     g_lastScdT = temperature;
     g_lastScdRh = humidity;
     g_scdArmedMs = now;
-    publishLastScd(out);
-    return;
-  }
-  uint16_t rawStatus = 0;
-  g_scd4x.getDataReadyStatusRaw(rawStatus);
-  if (now - g_scdLogMs > 4000) {
-    Serial.printf("[node-a] SCD40 no sample yet (status 0x%04X read %d)\n", rawStatus, error);
-    g_scdLogMs = now;
-  }
-  if (++g_scdErrors >= 4) {
-    g_scd4x.stopPeriodicMeasurement();
-    const int16_t startError = g_scd4x.startPeriodicMeasurement();
-    g_scdErrors = 0;
-    g_scdArmedMs = millis();
-    Serial.printf("[node-a] SCD40 rearm %d\n", startError);
+  } else if (++g_scdErrors >= 6) {
+    g_scdArmedMs = now;
   }
   publishLastScd(out);
 }
 
 static void configureBme688() {
-  g_bme688.setTemperatureOversampling(BME680_OS_8X);
-  g_bme688.setHumidityOversampling(BME680_OS_2X);
-  g_bme688.setPressureOversampling(BME680_OS_4X);
-  g_bme688.setIIRFilterSize(BME680_FILTER_SIZE_3);
-  g_bme688.setGasHeater(320, 150);
+  // Fast oversampling; gas heater off so performReading cannot sit ~200ms+.
+  g_bme688.setTemperatureOversampling(BME680_OS_2X);
+  g_bme688.setHumidityOversampling(BME680_OS_1X);
+  g_bme688.setPressureOversampling(BME680_OS_2X);
+  g_bme688.setIIRFilterSize(BME680_FILTER_SIZE_0);
+  g_bme688.setGasHeater(0, 0);
 }
 
 static bool beginBme688() {
@@ -288,15 +332,54 @@ static bool beginBme688() {
   return false;
 }
 
-static void readBme688(WearableReadings &out) {
-  if (!g_bme688Ready) return;
-  if (g_mpuHw) restoreBmeBus();
-  if (!g_bme688.performReading()) return;
+static bool g_haveBme = false;
+static float g_lastBmeT = NAN, g_lastBmeRh = NAN, g_lastBmeP = NAN, g_lastBmeGas = NAN;
+static uint32_t g_bmeStartedMs = 0;
+static bool g_bmePending = false;
+
+static void publishLastBme(WearableReadings &out) {
+  if (!g_haveBme) return;
   out.bme688 = true;
-  out.bme_temperature_c = g_bme688.temperature;
-  out.bme_humidity_rh = g_bme688.humidity;
-  out.pressure_hpa = g_bme688.pressure / 100.0f;
-  out.gas_resistance_ohm = g_bme688.gas_resistance;
+  out.bme_temperature_c = g_lastBmeT;
+  out.bme_humidity_rh = g_lastBmeRh;
+  out.pressure_hpa = g_lastBmeP;
+  out.gas_resistance_ohm = g_lastBmeGas;
+}
+
+static void readBme688(WearableReadings &out) {
+  if (!g_bme688Ready) {
+    // Blank — do not stall motion for a missing BME.
+    return;
+  }
+  if (g_mpuHw) restoreBmeBus();
+  g_bme688Wire.setTimeOut(40);
+
+  if (!g_bmePending) {
+    if (!g_bme688.beginReading()) {
+      publishLastBme(out);
+      return;
+    }
+    g_bmePending = true;
+    g_bmeStartedMs = millis();
+    publishLastBme(out);
+    return;
+  }
+
+  // Non-blocking: if the chip is still measuring, keep prior (or blank) values.
+  if (!g_bme688.endReading()) {
+    if (millis() - g_bmeStartedMs > 120) {
+      g_bmePending = false;  // give up this round; try again next env tick
+    }
+    publishLastBme(out);
+    return;
+  }
+  g_bmePending = false;
+  g_haveBme = true;
+  g_lastBmeT = g_bme688.temperature;
+  g_lastBmeRh = g_bme688.humidity;
+  g_lastBmeP = g_bme688.pressure / 100.0f;
+  g_lastBmeGas = g_bme688.gas_resistance;
+  publishLastBme(out);
 }
 
 static void readMax30102(WearableReadings &) {
@@ -735,11 +818,10 @@ static bool readMpuSample(WearableReadings &out) {
     gz = mpuWord(raw, 12);
   } else {
     Wire.setClock(SHARED_I2C_HZ);
-    Wire.setTimeOut(80);
+    Wire.setTimeOut(30);
     Wire.beginTransmission(g_mpuAddr);
     Wire.write(0x3B);
     if (Wire.endTransmission(true) != 0) return false;
-    delay(2);
     if (Wire.requestFrom(g_mpuAddr, static_cast<uint8_t>(14), static_cast<uint8_t>(true)) != 14) return false;
     ax = mpuRead16From(Wire);
     ay = mpuRead16From(Wire);
@@ -894,27 +976,30 @@ void featuresBegin() {
 }
 
 static void retryMissingSensors() {
+  // Rare + MPU-first. Never retry SCD/BME in a tight loop — blanks are fine.
   static uint32_t lastMs = 0;
-  if (g_scd40Ready && g_bme688Ready && (!MPU6050_ENABLED || g_mpu6050Ready)) return;
+  if (MPU6050_ENABLED && g_mpu6050Ready && g_scd40Ready && g_bme688Ready) return;
   const uint32_t now = millis();
-  if (lastMs != 0 && now - lastMs < 8000) return;
+  if (lastMs != 0 && now - lastMs < 30000) return;
   lastMs = now;
-  if (!g_scd40Ready) {
-    Serial.println("[node-a] retrying SCD40");
-    g_scd40Ready = beginScd40();
-  }
   if (MPU6050_ENABLED && !g_mpu6050Ready) {
     Serial.println("[node-a] retrying MPU-6050");
     g_mpu6050Ready = beginMpu6050(false);
   }
+  if (!g_scd40Ready && SCD40_ENABLED) {
+    Serial.println("[node-a] retrying SCD40 (optional)");
+    g_scd40Ready = beginScd40();
+  }
   if (BME688_ENABLED && !g_bme688Ready) {
-    Serial.println("[node-a] retrying BME688");
+    Serial.println("[node-a] retrying BME688 (optional)");
     g_bme688Ready = beginBme688();
   }
 }
 
-void featuresRead(WearableReadings &out) {
-  retryMissingSensors();
+static WearableReadings g_envCache = {};
+static bool g_envCacheReady = false;
+
+static void clearReadings(WearableReadings &out) {
   out = {};
   out.co2_ppm = NAN;
   out.scd40_temperature_c = NAN;
@@ -933,14 +1018,63 @@ void featuresRead(WearableReadings &out) {
   out.altitude_dm = GPS_ALT_ABSENT;
   out.gps_satellites = GPS_SATELLITES_ABSENT;
   out.battery_percent = BATTERY_PERCENT_ABSENT;
+}
 
-  readScd40(out);
+static void copyEnvironment(const WearableReadings &from, WearableReadings &to) {
+  if (from.scd40) {
+    to.scd40 = true;
+    to.co2_ppm = from.co2_ppm;
+    to.scd40_temperature_c = from.scd40_temperature_c;
+    to.scd40_humidity_rh = from.scd40_humidity_rh;
+  }
+  if (from.bme688) {
+    to.bme688 = true;
+    to.bme_temperature_c = from.bme_temperature_c;
+    to.bme_humidity_rh = from.bme_humidity_rh;
+    to.pressure_hpa = from.pressure_hpa;
+    to.gas_resistance_ohm = from.gas_resistance_ohm;
+  }
+  if (from.max30102) {
+    to.max30102 = true;
+    to.heart_rate_bpm = from.heart_rate_bpm;
+    to.spo2_percent = from.spo2_percent;
+  }
+  if (from.gps_fix || from.gps_last_known) {
+    to.gps_fix = from.gps_fix;
+    to.gps_last_known = from.gps_last_known;
+    to.latitude_e7 = from.latitude_e7;
+    to.longitude_e7 = from.longitude_e7;
+    to.altitude_dm = from.altitude_dm;
+    to.gps_satellites = from.gps_satellites;
+  }
+  if (from.battery) {
+    to.battery = true;
+    to.battery_percent = from.battery_percent;
+  }
+}
+
+void featuresRefreshEnvironment() {
+  retryMissingSensors();
+  WearableReadings env = {};
+  clearReadings(env);
+  // Keep prior cached air values if this poll blanks — motion still has MPU.
+  if (g_envCacheReady) copyEnvironment(g_envCache, env);
+  readScd40(env);
+  readBme688(env);
+  readMax30102(env);
+  readGps(env);
+  readBattery(env);
+  g_envCache = env;
+  g_envCacheReady = true;
+}
+
+void featuresRead(WearableReadings &out) {
+  // Motion path is independent: never block on a fresh SCD/BME sample.
+  clearReadings(out);
+  if (g_envCacheReady) copyEnvironment(g_envCache, out);
   readMpu6050(out);
-  readBme688(out);
-  readMax30102(out);
   readMq6(out);
-  readGps(out);
-  readBattery(out);
+  eiActivityPushSample(out);
   tickFall(out);
 }
 

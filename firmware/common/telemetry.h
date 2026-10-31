@@ -97,9 +97,12 @@ struct TelemetryPacket {
 
   // After the signed prefix so older signature checks keep the same offset.
   uint16_t mq6_raw;
+  /** Edge Impulse class name: idle, walk, jump, … Empty until the window fills. */
+  char activity_label[8];
+  uint8_t activity_score;
 } __attribute__((packed));
 
 static_assert(sizeof(TelemetryPacketV1) == TELEMETRY_V1_SIZE, "v1 packet size drifted");
 static_assert(sizeof(TelemetryPacket) <= 250, "ESP-NOW payload exceeds 250 bytes");
-static_assert(sizeof(TelemetryPacket) == 162, "v2 packet size drifted");
+static_assert(sizeof(TelemetryPacket) == 171, "v2 packet size drifted");
 static_assert(offsetof(TelemetryPacket, signature_len) == 95, "signed prefix drifted");

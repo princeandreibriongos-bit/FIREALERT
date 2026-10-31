@@ -12,9 +12,11 @@ This is a capstone prototype for New Makati Central Fire Station. It is not prot
 | Node B, gateway | ESP32-S3-DevKitC-1. USB serial number `14:C1:9F:C8:57:D8` | Receives ESP-NOW, joins Wi-Fi, prints JSON on USB |
 | Web board | Next.js app in `web/` | `http://localhost:3000`. XAMPP/Apache does not serve this app |
 
-COM port numbers change on every PC. Identify the boards by the USB serial number above, not by COM5 or COM6. Both boards show up as USB Serial Device, VID `303A`, PID `1001`, when the native USB port is used. Logs come from that native USB port (`ARDUINO_USB_CDC_ON_BOOT`). A CH343 USB-serial adapter will not show the firmware logs.
+COM port numbers change on every PC. Identify the boards by the USB serial number above, not by COM5 or COM6. Native-USB DevKits show up as USB Serial Device, VID `303A`, PID `1001`. Some kits (including replacements) use a WCH **CH343** bridge instead (`VID 1A86`, `PID 55D3`) — `npm run bridge` accepts those too. Prefer the port that prints `[node-b]` heartbeats.
 
-ESP-NOW only works when both radios are on the same channel. The wearable learns that channel by joining the same Wi-Fi network as the gateway. If the wearable is still on the room router (lab channel 9) and the gateway moves to a phone hotspot (lab channel 1), the wearable looks disconnected. Both devices must be given the new network.
+Node B firmware mirrors logs and Wi-Fi commands on **both** native USB CDC and UART0 (CH343). If the bridge only prints `sent router …` and never `heartbeat`, reflash Node B from this repo so the CH343 port speaks `[node-b]` lines. ESP32 radios are **2.4 GHz only** — a saved SSID named like `…5GHz…` will not join.
+
+ESP-NOW only works when both radios are on the same channel. The wearable learns that channel by joining the same Wi-Fi network as the gateway. If the wearable is still on the room router (lab channel 9) and the gateway moves to a phone hotspot (lab channel 1), the wearable looks disconnected. Both devices must be given the new network. The wearable defaults to **ESP-NOW broadcast** so a replacement gateway does not need its MAC edited into `config.h`.
 
 ## Install on Windows
 
@@ -42,13 +44,15 @@ npm run dev
 
 Leave that window open. `http://localhost:3000` refuses the connection when the dev server is not running. The server listens on `0.0.0.0:3000`.
 
-Plug in the gateway. In a second window, from `web/`, pass the gateway's COM port (the port whose serial number is `14:C1:9F:C8:57:D8`):
+Plug in the gateway. In a second window, from `web/`:
 
 ```powershell
-python serial-bridge.py COM5
+npm run bridge
 ```
 
-`npm run bridge` is the same command with `COM5` hardcoded. On a new PC, pass the real port instead of trusting COM5.
+`npm run bridge` uses the Windows `py -3` launcher (not the Microsoft Store `python` stub). The bridge auto-detects Node B by USB serial (`14:C1:9F:C8:57:D8` when that board is used), by listening for `[node-b]` if both ESP32s are plugged in, and by remembering the last working port in `web/data/bridge-port.json`. COM numbers can change when you swap PCs or boards — you do not need to pass `COMx`. Optional override: `npm run bridge -- COM7` or `py -3 serial-bridge.py COM7`. If nothing is plugged in yet, the bridge waits and retries.
+
+If `python` alone opens the Microsoft Store, turn off **Settings → Apps → Advanced app settings → App execution aliases → python.exe / python3.exe**, or keep using `npm run bridge` / `py -3`.
 
 The bridge forwards gateway serial JSON to `http://127.0.0.1:3000/api/telemetry`. Windows Firewall usually blocks the ESP32 from POSTing straight to the PC, so the USB bridge is the path that actually fills the dashboard. Open the serial port with DTR and RTS off. The default pyserial settings reset the board or swallow the Wi-Fi line.
 

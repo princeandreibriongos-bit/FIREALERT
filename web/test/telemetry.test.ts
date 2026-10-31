@@ -45,6 +45,8 @@ describe("telemetry", () => {
     assert.equal(entry.scd40.co2_ppm, 800);
     assert.equal(entry.mpu6050.installed, false);
     assert.equal(entry.mq6.installed, false);
+    assert.equal(entry.activity.label, "waiting");
+    assert.equal(entry.activity.score, null);
     assert.equal(entry.mq6.raw, null);
     assert.equal(entry.signature.status, "unsigned");
     assert.equal(entry.uplink, "wifi");
@@ -73,13 +75,21 @@ describe("telemetry", () => {
     assert.equal(crew[0].fall.state, "distress");
   });
 
+  it("reads the on-device activity label", () => {
+    const entry = sample({ activity: { label: "walk", score: 0.91 } });
+    assert.equal(entry.activity.label, "walk");
+    assert.equal(entry.activity.score, 0.91);
+    const jump = sample({ activity: { label: "jump", score: 0.8 } });
+    assert.equal(jump.activity.label, "jump");
+  });
+
   it("labels CO2 cues and link age", () => {
     assert.equal(co2Cue(null, false), "awaiting");
     assert.equal(co2Cue(800, true), "routine");
     assert.equal(co2Cue(1500, true), "elevated");
     assert.equal(co2Cue(6000, true), "high");
     assert.equal(linkState(at, Date.parse(at) + 5000), "live");
-    assert.equal(linkState(at, Date.parse(at) + 21000), "stale");
+    assert.equal(linkState(at, Date.parse(at) + 46000), "stale");
   });
 
   it("reads CO2 and gas resistance together", () => {

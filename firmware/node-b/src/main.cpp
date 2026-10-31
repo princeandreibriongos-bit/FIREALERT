@@ -11,6 +11,7 @@
 #include "config.h"
 #include "telemetry.h"
 #include "wifi_store.h"
+#include "dual_serial.h"
 
 static WifiCreds g_wifi = {};
 static WifiBook g_book = {};
@@ -27,9 +28,62 @@ static uint8_t g_candidateCount = 0;
 static uint8_t g_candidatePos = 0;
 static bool g_channelHeld = false;
 static bool g_recheck = false;
+static char g_trying[33] = "-";
+static char g_detail[40] = "boot";
 
-static constexpr size_t QUEUE_DEPTH = 8;
+static const char *phaseName(WifiPhase phase) {
+  switch (phase) {
+    case WifiPhase::Connecting:
+      return "connecting";
+    case WifiPhase::Scanning:
+      return "scanning";
+    case WifiPhase::Hold:
+      return "hold";
+    case WifiPhase::Connected:
+      return "connected";
+    default:
+      return "idle";
+  }
+}
+
+static void setTrying(const char *ssid) {
+  if (ssid == nullptr || ssid[0] == '\0') {
+    strncpy(g_trying, "-", sizeof(g_trying) - 1);
+  } else {
+    strncpy(g_trying, ssid, sizeof(g_trying) - 1);
+  }
+  g_trying[sizeof(g_trying) - 1] = '\0';
+}
+
+static void setDetail(const char *detail) {
+  if (detail == nullptr || detail[0] == '\0') {
+    strncpy(g_detail, "-", sizeof(g_detail) - 1);
+  } else {
+    strncpy(g_detail, detail, sizeof(g_detail) - 1);
+  }
+  g_detail[sizeof(g_detail) - 1] = '\0';
+}
+
+/** Map ESP32 STA status to a board-readable join failure code. */
+static const char *joinFailDetail(wl_status_t status) {
+  switch (status) {
+    case WL_NO_SSID_AVAIL:
+      return "ssid_not_found";
+    case WL_CONNECT_FAILED:
+      return "bad_password";
+    case WL_CONNECTION_LOST:
+      return "connection_lost";
+    case WL_DISCONNECTED:
+      return "disconnected";
+    default:
+      return "join_failed";
+  }
+}
+
+static constexpr size_t QUEUE_DEPTH = 32;
 static constexpr size_t PACKET_MAX = 250;
+/** After a failed Wi-Fi POST, skip HTTP for a while — USB serial already delivered the packet. */
+static uint32_t g_httpBackoffUntilMs = 0;
 
 struct QueuedPacket {
   uint8_t data[PACKET_MAX];
@@ -130,7 +184,7 @@ static void holdFallbackChannel() {
   esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
   esp_wifi_set_promiscuous(false);
   g_channelHeld = true;
-  Serial.printf("[node-b] Wi-Fi down; ESP-NOW stays on channel %u until a saved network answers\n", WIFI_CHANNEL);
+  FASerial.printf("[node-b] Wi-Fi down; ESP-NOW stays on channel %u until a saved network answers\n", WIFI_CHANNEL);
 }
 
 static void beginJoin(uint8_t index, bool force) {
@@ -138,18 +192,21 @@ static void beginJoin(uint8_t index, bool force) {
   copySlot(index);
   g_channelHeld = false;
   g_recheck = false;
+  setTrying(g_wifi.ssid);
   WiFi.setSleep(false);
   WiFi.mode(WIFI_STA);
   if (!force && WiFi.status() == WL_CONNECTED && WiFi.SSID() == g_wifi.ssid) {
     g_phase = WifiPhase::Connected;
     g_phaseMs = millis();
+    setDetail("ok");
     return;
   }
   WiFi.disconnect(false, false);
   WiFi.begin(g_wifi.ssid, g_wifi.password);
   g_phase = WifiPhase::Connecting;
   g_phaseMs = millis();
-  Serial.printf("[node-b] joining %s\n", g_wifi.ssid);
+  setDetail("connecting");
+  FASerial.printf("[node-b] joining %s\n", g_wifi.ssid);
 }
 
 static void armPreferred(bool force) {
@@ -211,23 +268,27 @@ static void noteUp() {
   if (ssid.length() == 0) ssid = g_wifi.ssid;
   strncpy(g_joined, ssid.c_str(), sizeof(g_joined) - 1);
   g_joined[sizeof(g_joined) - 1] = '\0';
-  Serial.print("[node-b] Wi-Fi OK  SSID=");
-  Serial.print(g_joined);
-  Serial.print("  IP=");
-  Serial.print(WiFi.localIP());
-  Serial.print("  channel=");
-  Serial.print(WiFi.channel());
-  Serial.print("  STA MAC=");
-  Serial.println(WiFi.macAddress());
+  setTrying(g_joined);
+  setDetail("ok");
+  FASerial.print("[node-b] Wi-Fi OK  SSID=");
+  FASerial.print(g_joined);
+  FASerial.print("  IP=");
+  FASerial.print(WiFi.localIP());
+  FASerial.print("  channel=");
+  FASerial.print(WiFi.channel());
+  FASerial.print("  STA MAC=");
+  FASerial.println(WiFi.macAddress());
 }
 
 static void startScan() {
   g_recheck = false;
-  Serial.println("[node-b] looking for a saved network");
+  setDetail("scanning");
+  FASerial.println("[node-b] looking for a saved network");
   const int started = WiFi.scanNetworks(true, true);
   if (started == WIFI_SCAN_FAILED) {
     g_phase = WifiPhase::Hold;
     g_phaseMs = millis();
+    setDetail("scan_failed");
     holdFallbackChannel();
     return;
   }
@@ -236,7 +297,12 @@ static void startScan() {
 }
 
 static void failJoin() {
-  Serial.printf("[node-b] could not join %s (status %d)\n", g_wifi.ssid, static_cast<int>(WiFi.status()));
+  const wl_status_t status = WiFi.status();
+  const char *detail = joinFailDetail(status);
+  setTrying(g_wifi.ssid);
+  setDetail(detail);
+  FASerial.printf("[node-b] could not join %s (status %d detail=%s)\n", g_wifi.ssid, static_cast<int>(status),
+                detail);
   g_candidatePos++;
   if (g_candidatePos < g_candidateCount) {
     beginJoin(g_candidate[g_candidatePos], true);
@@ -265,7 +331,7 @@ static void serviceWifi() {
     }
     noteUp();
     if (!onPreferred() && millis() - g_phaseMs >= 45000) {
-      Serial.println("[node-b] checking whether the preferred network is back");
+      FASerial.println("[node-b] checking whether the preferred network is back");
       g_recheck = true;
       if (WiFi.scanNetworks(true, true) == WIFI_SCAN_FAILED) {
         g_recheck = false;
@@ -290,7 +356,7 @@ static void serviceWifi() {
     WiFi.scanDelete();
     g_recheck = false;
     if (visible && !onPreferred()) {
-      Serial.printf("[node-b] preferred network %s is back\n", g_book.slots[g_book.preferred].ssid);
+      FASerial.printf("[node-b] preferred network %s is back\n", g_book.slots[g_book.preferred].ssid);
       armPreferred(true);
       return;
     }
@@ -300,11 +366,12 @@ static void serviceWifi() {
   }
 
   if (g_phase == WifiPhase::Connected) {
-    Serial.println("[node-b] Wi-Fi dropped");
+    FASerial.println("[node-b] Wi-Fi dropped");
     g_joined[0] = '\0';
     g_recheck = false;
     g_candidatePos = g_candidateCount;
     g_phase = WifiPhase::Idle;
+    setDetail("connection_lost");
   }
 
   if (g_phase == WifiPhase::Connecting) {
@@ -324,14 +391,16 @@ static void serviceWifi() {
       return;
     }
     queueVisible(found);
-    Serial.printf("[node-b] %d network(s) in range, %u saved match\n", found, static_cast<unsigned>(g_candidateCount));
+    FASerial.printf("[node-b] %d network(s) in range, %u saved match\n", found, static_cast<unsigned>(g_candidateCount));
     if (g_candidateCount == 0) {
-      Serial.print("[node-b] none of the saved networks are in range:");
+      FASerial.print("[node-b] none of the saved networks are in range:");
       for (uint8_t i = 0; i < g_book.count; i++) {
-        Serial.print(' ');
-        Serial.print(g_book.slots[i].ssid);
+        FASerial.print(' ');
+        FASerial.print(g_book.slots[i].ssid);
       }
-      Serial.println();
+      FASerial.println();
+      if (g_book.count > 0) setTrying(g_book.slots[g_book.preferred].ssid);
+      setDetail("not_in_range");
       g_phase = WifiPhase::Hold;
       g_phaseMs = millis();
       holdFallbackChannel();
@@ -354,12 +423,14 @@ static void serviceWifi() {
 }
 
 static bool initEspNow() {
+  // Units are 0.25 dBm. Match the wearable so short-range drops are rarer.
+  esp_wifi_set_max_tx_power(84);
   if (esp_now_init() != ESP_OK) {
-    Serial.println("[node-b] esp_now_init failed");
+    FASerial.println("[node-b] esp_now_init failed");
     return false;
   }
   esp_now_register_recv_cb(onEspNowRecv);
-  Serial.println("[node-b] ESP-NOW listening");
+  FASerial.println("[node-b] ESP-NOW listening");
   return true;
 }
 
@@ -473,25 +544,25 @@ static void loadRouter() {
   loadWifiBook(g_book);
   if (g_book.count == 0 && WIFI_SSID[0] != '\0' && strcmp(WIFI_SSID, "YOUR_WIFI_SSID") != 0) {
     if (upsertWifi(WIFI_SSID, WIFI_PASSWORD, true)) loadWifiBook(g_book);
-    Serial.printf("[node-b] router from config.h fallback: %s\n", WIFI_SSID);
+    FASerial.printf("[node-b] router from config.h fallback: %s\n", WIFI_SSID);
   }
   if (g_book.count == 0) {
-    Serial.println("[node-b] no router yet — enter it on the dashboard");
+    FASerial.println("[node-b] no router yet — enter it on the dashboard");
     return;
   }
   copySlot(g_book.preferred);
   rememberApplied(g_wifi.ssid, g_wifi.password);
-  Serial.printf("[node-b] %u saved network(s); preferred %s\n", g_book.count, g_book.slots[g_book.preferred].ssid);
+  FASerial.printf("[node-b] %u saved network(s); preferred %s\n", g_book.count, g_book.slots[g_book.preferred].ssid);
   for (uint8_t i = 0; i < g_book.count; i++) {
     if (i == g_book.preferred) continue;
-    Serial.printf("[node-b] also saved %s\n", g_book.slots[i].ssid);
+    FASerial.printf("[node-b] also saved %s\n", g_book.slots[i].ssid);
   }
 }
 
 static void readRouterFromSerial() {
   static char line[160];
   static size_t used = 0;
-  while (takeSerialLine(line, sizeof(line), used)) {
+  while (takeSerialLine(FASerial, line, sizeof(line), used)) {
     char ssid[33];
     char password[64];
     bool prefer = false;
@@ -502,7 +573,7 @@ static void readRouterFromSerial() {
     if (!unchanged) {
       if (!upsertWifi(ssid, password, prefer)) continue;
       loadWifiBook(g_book);
-      if (!prefer) Serial.printf("[node-b] remembered %s\n", ssid);
+      if (!prefer) FASerial.printf("[node-b] remembered %s\n", ssid);
     }
     if (!prefer) continue;
     const bool same = strcmp(ssid, g_appliedSsid) == 0 && strcmp(password, g_appliedPass) == 0;
@@ -512,7 +583,7 @@ static void readRouterFromSerial() {
       continue;
     }
     if (same && (g_phase == WifiPhase::Connecting || g_phase == WifiPhase::Scanning)) continue;
-    Serial.printf("[node-b] router saved from USB: %s\n", ssid);
+    FASerial.printf("[node-b] router saved from USB: %s\n", ssid);
     armPreferred(true);
   }
 }
@@ -561,7 +632,7 @@ static void pollDashboardRouter() {
   if (!upsertWifi(ssid, password, true)) return;
   loadWifiBook(g_book);
   rememberApplied(ssid, password);
-  Serial.printf("[node-b] router updated from dashboard: %s\n", ssid);
+  FASerial.printf("[node-b] router updated from dashboard: %s\n", ssid);
   armPreferred(true);
 }
 
@@ -569,24 +640,36 @@ static bool postDocument(JsonDocument &doc) {
   doc["router_ssid"] = g_wifi.ssid[0] ? g_wifi.ssid : nullptr;
   String body;
   serializeJson(doc, body);
-  // The USB bridge forwards this line even when the gateway Wi-Fi is down.
-  Serial.println(body);
+  // Primary path for this lab: USB serial → npm run bridge → localhost.
+  // Always print first so a bad TELEMETRY_URL cannot stall the ESP-NOW queue.
+  FASerial.println(body);
+
   if (WiFi.status() != WL_CONNECTED && !CELLULAR_MODEM_INSTALLED) {
-    return false;
+    return true;
+  }
+  if (millis() < g_httpBackoffUntilMs) {
+    return true;
   }
 
   HTTPClient http;
-  http.setTimeout(HTTP_TIMEOUT_MS);
+  // Keep this short. An 8s timeout per packet made motion look like "1 packet / minute".
+  http.setTimeout(1200);
   if (!http.begin(TELEMETRY_URL)) {
-    Serial.println("[node-b] HTTP begin failed");
-    return false;
+    FASerial.println("[node-b] HTTP begin failed; USB bridge still has the packet");
+    g_httpBackoffUntilMs = millis() + 30000;
+    return true;
   }
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Firealert-Gateway", GATEWAY_ID);
   const int status = http.POST(body);
-  Serial.printf("[node-b] POST %s -> HTTP %d\n", TELEMETRY_URL, status);
   http.end();
-  return status >= 200 && status < 300;
+  if (status >= 200 && status < 300) {
+    g_httpBackoffUntilMs = 0;
+    return true;
+  }
+  FASerial.printf("[node-b] POST %s -> HTTP %d (USB ok; pausing Wi-Fi POST 30s)\n", TELEMETRY_URL, status);
+  g_httpBackoffUntilMs = millis() + 30000;
+  return true;
 }
 
 static bool postV1(const QueuedPacket &item) {
@@ -629,7 +712,7 @@ static bool postV1(const QueuedPacket &item) {
 
 static bool postV2(const QueuedPacket &item) {
   if (item.len != sizeof(TelemetryPacket)) {
-    Serial.printf("[node-b] v2 length %u, expected %u\n", item.len,
+    FASerial.printf("[node-b] v2 length %u, expected %u\n", item.len,
                   static_cast<unsigned>(sizeof(TelemetryPacket)));
     return false;
   }
@@ -740,6 +823,12 @@ static bool postV2(const QueuedPacket &item) {
   fall["model"] = FALL_MODEL_ID;
   fall["grace_remaining_ms"] = packet.grace_remaining_ms;
 
+  char activityLabel[sizeof(packet.activity_label) + 1] = {};
+  memcpy(activityLabel, packet.activity_label, sizeof(packet.activity_label));
+  JsonObject activity = doc["activity"].to<JsonObject>();
+  activity["label"] = activityLabel[0] ? activityLabel : "waiting";
+  activity["score"] = static_cast<float>(packet.activity_score) / 100.0f;
+
   const bool wantBuzzer = (packet.alert_outputs & ALERT_BUZZER) != 0;
   const bool wantScreen = (packet.alert_outputs & ALERT_SCREEN) != 0;
   JsonObject ui = doc["local_ui"].to<JsonObject>();
@@ -756,26 +845,31 @@ static bool postV2(const QueuedPacket &item) {
 }
 
 void setup() {
-  Serial.begin(115200);
+  firealertSerialBegin(115200);
   delay(200);
-  Serial.println();
-  Serial.println("[node-b] FIREALERT field gateway boot");
+  FASerial.println();
+  FASerial.println("[node-b] FIREALERT field gateway boot");
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
   WiFi.setAutoReconnect(false);
   WiFi.disconnect(false, true);
   delay(100);
-  Serial.printf("[node-b] v2 packet %u bytes; uplink %s\n", static_cast<unsigned>(sizeof(TelemetryPacket)),
+  FASerial.printf("[node-b] v2 packet %u bytes; uplink %s\n", static_cast<unsigned>(sizeof(TelemetryPacket)),
                 CELLULAR_MODEM_INSTALLED ? "cellular" : "wifi stand-in");
   if (!initEspNow()) {
-    Serial.println("[node-b] ESP-NOW init failed — halt");
+    FASerial.println("[node-b] ESP-NOW init failed — halt");
     while (true) {
       delay(1000);
     }
   }
   loadRouter();
-  if (g_book.count > 0) armPreferred(false);
+  if (g_book.count == 0) {
+    setDetail("no_saved_network");
+    setTrying("-");
+  } else {
+    armPreferred(false);
+  }
 }
 
 void loop() {
@@ -792,10 +886,12 @@ void loop() {
       ssid = WiFi.SSID();
       if (ssid.length() == 0) ssid = g_joined[0] ? g_joined : g_wifi.ssid;
     }
-    Serial.printf("[node-b] heartbeat wifi=%s ip=%s ch=%u mac=%s cellular=%s ssid=%s\n",
-                  up ? "up" : "down", up ? WiFi.localIP().toString().c_str() : "0.0.0.0",
-                  up ? WiFi.channel() : WIFI_CHANNEL, WiFi.macAddress().c_str(),
-                  CELLULAR_MODEM_INSTALLED ? "ready" : "not-installed", ssid.c_str());
+    FASerial.printf(
+        "[node-b] heartbeat wifi=%s ip=%s ch=%u mac=%s cellular=%s ssid=%s phase=%s trying=%s detail=%s\n",
+        up ? "up" : "down", up ? WiFi.localIP().toString().c_str() : "0.0.0.0",
+        up ? WiFi.channel() : WIFI_CHANNEL, WiFi.macAddress().c_str(),
+        CELLULAR_MODEM_INSTALLED ? "ready" : "not-installed", ssid.c_str(), phaseName(g_phase), g_trying,
+        g_detail);
   }
 
   QueuedPacket item;
@@ -811,10 +907,10 @@ void loop() {
   } else if (version == TELEMETRY_VERSION_V1) {
     posted = postV1(item);
   } else {
-    Serial.printf("[node-b] drop packet version %u\n", version);
+    FASerial.printf("[node-b] drop packet version %u\n", version);
     return;
   }
   if (!posted) {
-    Serial.println("[node-b] forward failed; packet dropped");
+    FASerial.println("[node-b] packet build failed; dropped");
   }
 }

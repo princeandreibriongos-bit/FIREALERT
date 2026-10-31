@@ -99,8 +99,8 @@ export function RouterForm() {
       applyStored({ active: json.active, router: json.router, hotspot: json.hotspot }, kind);
       setMessage(
         kind === "hotspot"
-          ? "Phone hotspot is the network the gateway will join. The room router is still saved."
-          : "Room router is the network the gateway will join. The phone hotspot is still saved.",
+          ? "Phone hotspot saved and set active. Keep npm run bridge running, then use Check connection on the right."
+          : "Room router saved and set active. Keep npm run bridge running, then use Check connection on the right.",
       );
     } catch {
       setError("Could not save that network");
@@ -179,22 +179,31 @@ export function RouterForm() {
         </div>
         <div className="field">
           <label htmlFor="router-password">Password</label>
-          <input
-            id="router-password"
-            name="password"
-            type={show ? "text" : "password"}
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            maxLength={63}
-            placeholder={kind === "hotspot" ? "Hotspot password" : "Router password"}
-            autoComplete="new-password"
-            disabled={!ready || saving}
-          />
+          <div className="password-field">
+            <input
+              id="router-password"
+              name="password"
+              type={show ? "text" : "password"}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              maxLength={63}
+              placeholder={kind === "hotspot" ? "Hotspot password" : "Router password"}
+              autoComplete="new-password"
+              disabled={!ready || saving}
+            />
+            <button
+              type="button"
+              className="btn btn-ghost password-toggle"
+              onClick={() => setShow((value) => !value)}
+              aria-pressed={show}
+              aria-controls="router-password"
+            >
+              {show ? "Hide" : "Show"}
+            </button>
+          </div>
+          <p className="fine">Show the password to compare it with the phone or router before you blame the join.</p>
         </div>
         <div className="row-actions">
-          <button type="button" className="btn btn-ghost" onClick={() => setShow((value) => !value)}>
-            {show ? "Hide password" : "Show password"}
-          </button>
           <button type="submit" className="btn btn-primary" disabled={!ready || saving}>
             {saving ? "Saving…" : kind === "hotspot" ? "Save hotspot" : "Save router"}
           </button>

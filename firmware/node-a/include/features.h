@@ -43,7 +43,10 @@ struct WearableReadings {
 };
 
 void featuresBegin();
+/** Fast path: MPU (+ MQ-6 / fall) now; SCD/BME from last environment cache. */
 void featuresRead(WearableReadings &out);
+/** Slow path: refresh SCD40 / BME688 (and other env) into the cache. */
+void featuresRefreshEnvironment();
 bool wearableWifiConfigured();
 const char *wearableWifiSsid();
 const char *wearableWifiPassword();

@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { gatewayPhase, newestHardware, noteLink, parseLinkReport, readLink, wearablePhase } from "../lib/link-status.ts";
+import {
+  diagnoseGateway,
+  gatewayPhase,
+  newestHardware,
+  noteLink,
+  parseLinkReport,
+  readLink,
+  wearablePhase,
+} from "../lib/link-status.ts";
 
 describe("gateway link reports", () => {
   it("accepts a heartbeat from the USB bridge", () => {
@@ -27,10 +35,14 @@ describe("gateway link reports", () => {
       mac: "14:C1:9F:C8:57:D8",
       cellular: "not-installed",
       ssid: "Phone Hotspot",
+      phase: "connected",
+      trying: "Phone Hotspot",
+      detail: "ok",
     });
     assert.equal(parsed.ok, true);
     if (!parsed.ok) return;
     assert.equal(parsed.value.ssid, "Phone Hotspot");
+    assert.equal(parsed.value.detail, "ok");
     assert.equal(parseLinkReport({ wifi: "down", ip: "0.0.0.0", channel: 9, mac: "14:C1:9F:C8:57:D8", ssid: "-" }).ok, true);
   });
 
@@ -45,7 +57,18 @@ describe("connection phases", () => {
   it("treats a fresh Wi-Fi up heartbeat as connected", () => {
     assert.equal(
       gatewayPhase(
-        { wifi: "up", ip: "172.20.10.4", channel: 6, mac: "AA:BB:CC:DD:EE:FF", cellular: null, ssid: null, seen_at: "2026-10-26T03:00:08.000Z" },
+        {
+          wifi: "up",
+          ip: "172.20.10.4",
+          channel: 6,
+          mac: "AA:BB:CC:DD:EE:FF",
+          cellular: null,
+          ssid: null,
+          phase: "connected",
+          trying: null,
+          detail: "ok",
+          seen_at: "2026-10-26T03:00:08.000Z",
+        },
         now,
       ),
       "up",
@@ -55,7 +78,18 @@ describe("connection phases", () => {
   it("drops a heartbeat that has gone quiet", () => {
     assert.equal(
       gatewayPhase(
-        { wifi: "up", ip: "172.20.10.4", channel: 6, mac: null, cellular: null, ssid: null, seen_at: "2026-10-26T02:59:00.000Z" },
+        {
+          wifi: "up",
+          ip: "172.20.10.4",
+          channel: 6,
+          mac: null,
+          cellular: null,
+          ssid: null,
+          phase: null,
+          trying: null,
+          detail: null,
+          seen_at: "2026-10-26T02:59:00.000Z",
+        },
         now,
       ),
       "waiting",
@@ -70,5 +104,54 @@ describe("connection phases", () => {
     assert.equal(wearablePhase(crew, now), "stale");
     assert.equal(newestHardware(crew)?.wearer_id, "B8:1F:3F:D8:18:EC");
     assert.equal(wearablePhase([{ simulated: true, received_at: "2026-10-26T03:00:09.000Z" }], now), "waiting");
+  });
+});
+
+describe("gateway diagnosis", () => {
+  const now = Date.parse("2026-10-26T03:00:10.000Z");
+
+  it("treats missing heartbeats as a USB problem, not a password problem", () => {
+    const result = diagnoseGateway(null, now, "Phone");
+    assert.equal(result.likely, "usb");
+    assert.match(result.summary, /cannot tell whether the password is right or wrong/i);
+  });
+
+  it("flags bad_password when the gateway reports auth failure over USB", () => {
+    const result = diagnoseGateway(
+      {
+        wifi: "down",
+        ip: "0.0.0.0",
+        channel: 6,
+        mac: "AA:BB:CC:DD:EE:FF",
+        cellular: null,
+        ssid: null,
+        phase: "idle",
+        trying: "Phone",
+        detail: "bad_password",
+        seen_at: "2026-10-26T03:00:08.000Z",
+      },
+      now,
+      "Phone",
+    );
+    assert.equal(result.likely, "password");
+  });
+
+  it("flags not_in_range when the SSID is invisible", () => {
+    const result = diagnoseGateway(
+      {
+        wifi: "down",
+        ip: "0.0.0.0",
+        channel: 9,
+        mac: "AA:BB:CC:DD:EE:FF",
+        cellular: null,
+        ssid: null,
+        phase: "hold",
+        trying: "OldRouter",
+        detail: "not_in_range",
+        seen_at: "2026-10-26T03:00:08.000Z",
+      },
+      now,
+    );
+    assert.equal(result.likely, "range");
   });
 });

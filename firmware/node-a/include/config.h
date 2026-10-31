@@ -13,10 +13,24 @@ static constexpr const char *DEVICE_ID = "FF-01";
 static constexpr uint8_t WIFI_CHANNEL = 9;
 static constexpr const char *WIFI_SSID = "YOUR_WIFI_SSID";
 static constexpr const char *WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
-static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 15000;
+/** Boot-only wait. Runtime Wi-Fi joins are non-blocking so motion never stalls. */
+static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 4000;
 
-static const uint8_t NODE_B_MAC[6] = {0x14, 0xC1, 0x9F, 0xC8, 0x57, 0xD8};
-static constexpr uint32_t SAMPLE_INTERVAL_MS = 5000;
+// Broadcast so a replacement gateway works without editing this file.
+// For a fixed unicast peer, put that board's STA MAC here instead.
+static const uint8_t NODE_B_MAC[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+/** How often MPU/motion is sampled and sent (does not wait on SCD/BME). */
+static constexpr uint32_t MOTION_INTERVAL_MS = 100;
+/** How often slow air sensors are *polled* (non-blocking; blanks stay NaN until ready). */
+static constexpr uint32_t ENVIRONMENT_INTERVAL_MS = 5000;
+/** Simple throw/impact fall cue (Edge Impulse model is not linked). */
+static constexpr float FALL_FREEFALL_G = 0.45f;
+static constexpr float FALL_IMPACT_G = 2.2f;
+static constexpr float FALL_TUMBLE_GYRO_DPS = 350.0f;
+static constexpr float FALL_TUMBLE_ACCEL_G = 1.8f;
+/** @deprecated alias — motion cadence is MOTION_INTERVAL_MS. */
+static constexpr uint32_t SAMPLE_INTERVAL_MS = MOTION_INTERVAL_MS;
+static constexpr uint8_t ESPNOW_SEND_RETRIES = 3;
 
 // --- Shared I2C bus --------------------------------------------------------
 // ESP32-S3-DevKitC-1, USB at the bottom, left header.
@@ -76,8 +90,9 @@ static constexpr bool CANCEL_BUTTON_ENABLED = true;
 static constexpr int CANCEL_BUTTON_PIN = 4;  // active low, internal pull-up
 static constexpr uint32_t FALL_GRACE_MS = 10000;
 
-// Edge Impulse library is not linked. predictFall() stays false.
-static constexpr const char *FALL_MODEL_ID = "edge-impulse-placeholder";
+// Edge Impulse idle/walk classifier is linked (see lib/edge-impulse-mpu).
+// Fall grace still uses the simple impact heuristic; EI labels activity on serial.
+static constexpr const char *FALL_MODEL_ID = "mpu5060-v1-idle-walk";
 
 // --- ECDSA -----------------------------------------------------------------
 // Off until a private key is provisioned on the device. Do not commit a key.

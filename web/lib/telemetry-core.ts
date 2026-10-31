@@ -58,6 +58,7 @@ export type RawTelemetry = {
     satellites?: number | null;
   };
   fall?: { state?: string; model?: string; grace_remaining_ms?: number };
+  activity?: { label?: string; score?: number | null };
   local_ui?: { touchscreen?: string; buzzer?: string };
 };
 
@@ -96,12 +97,25 @@ export type NormalizedTelemetry = {
     satellites: number | null;
   };
   fall: { state: FallState; model: string; grace_remaining_ms: number };
+  activity: { label: string; score: number | null };
   local_ui: { touchscreen: UiState; buzzer: UiState };
 };
 
 export type SignatureCheck = (prefixHex: string | null, signatureHex: string | null) => SignatureStatus;
 
 const UI_STATES: readonly UiState[] = ["not_installed", "requested_not_installed", "installed", "active"];
+
+function activityOf(activity: Record<string, unknown>): NormalizedTelemetry["activity"] {
+  const raw = text(activity.label, 16).toLowerCase();
+  const score = num(activity.score);
+  if (!raw || raw === "waiting" || raw === "unknown") {
+    return { label: "waiting", score: null };
+  }
+  return {
+    label: raw,
+    score: score == null ? null : Math.min(1, Math.max(0, score)),
+  };
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -177,6 +191,7 @@ export function normalizeTelemetry(
   const mq6 = isRecord(input.mq6) ? input.mq6 : {};
   const battery = isRecord(input.battery) ? input.battery : {};
   const fall = isRecord(input.fall) ? input.fall : {};
+  const activity = isRecord(input.activity) ? input.activity : {};
   const ui = isRecord(input.local_ui) ? input.local_ui : {};
   const uplink = uplinkOf(input.uplink);
   const scdOn = scd.ok === true;
@@ -248,6 +263,7 @@ export function normalizeTelemetry(
       model: text(fall.model, 60) || "edge-impulse-placeholder",
       grace_remaining_ms: grace != null && grace >= 0 ? Math.min(grace, 120000) : 0,
     },
+    activity: activityOf(activity),
     local_ui: {
       touchscreen: uiState(ui.touchscreen),
       buzzer: uiState(ui.buzzer),
@@ -284,7 +300,7 @@ export function co2Cue(ppm: number | null, installed: boolean): Co2Cue {
 export function linkState(receivedAt: string, now = Date.now()): "live" | "stale" | "unknown" {
   const at = Date.parse(receivedAt);
   if (Number.isNaN(at)) return "unknown";
-  return now - at <= 20_000 ? "live" : "stale";
+  return now - at <= 45_000 ? "live" : "stale";
 }
 
 export type AirKind = "awaiting" | "steady" | "occupied" | "mix" | "both" | "bme";
