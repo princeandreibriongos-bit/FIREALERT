@@ -19,8 +19,14 @@ from pathlib import Path
 import serial
 from serial.tools import list_ports
 
-API_URL = "http://127.0.0.1:3000/api/telemetry"
-LINK_URL = "http://127.0.0.1:3000/api/link"
+LOCAL_ORIGIN = "http://127.0.0.1:3000"
+# The dashboard in this project reads the shared log. The hosted board is what
+# writes that log. Localhost alone stays on the PC and never turns this page live.
+HOSTED_ORIGIN = "https://firealert-three.vercel.app"
+API_URL = f"{LOCAL_ORIGIN}/api/telemetry"
+LINK_URL = f"{LOCAL_ORIGIN}/api/link"
+API_URLS = [API_URL, f"{HOSTED_ORIGIN}/api/telemetry"]
+LINK_URLS = [LINK_URL, f"{HOSTED_ORIGIN}/api/link"]
 # New firmware adds phase/trying/detail; older builds still match without them.
 HEARTBEAT = re.compile(
     r"\[node-b\] heartbeat wifi=(up|down) ip=(\S+) ch=(\d+) mac=([0-9A-Fa-f:]+)"
@@ -374,11 +380,26 @@ def post_json(url: str, payload: dict) -> int:
     req = urllib.request.Request(
         url,
         data=data,
-        headers={"Content-Type": "application/json", "X-Firealert-Bridge": "serial"},
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "FIREALERT-bridge",
+            "X-Firealert-Bridge": "serial",
+        },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=5) as resp:
+    with urllib.request.urlopen(req, timeout=4) as resp:
         return resp.status
+
+
+def post_each(urls: list[str], payload: dict) -> str:
+    notes: list[str] = []
+    for url in urls:
+        host = url.split("/")[2]
+        try:
+            notes.append(f"{host} {post_json(url, payload)}")
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            notes.append(f"{host} failed ({exc})")
+    return ", ".join(notes)
 
 
 def link_payload(state: dict) -> dict[str, object]:
@@ -400,8 +421,7 @@ def link_payload(state: dict) -> dict[str, object]:
 
 
 def post_link_state(state: dict, note: str) -> None:
-    status = post_json(LINK_URL, link_payload(state))
-    print(f"{note} HTTP {status}", flush=True)
+    print(f"{note} {post_each(LINK_URLS, link_payload(state))}", flush=True)
 
 
 def post_heartbeat(match: re.Match[str], gateway: str, state: dict) -> None:
@@ -481,8 +501,7 @@ def apply_diag_line(text: str, state: dict) -> bool:
 
 
 def post_payload(obj: dict) -> None:
-    status = post_json(API_URL, obj)
-    print(f"forwarded seq={obj.get('sequence')} HTTP {status}", flush=True)
+    print(f"forwarded seq={obj.get('sequence')} {post_each(API_URLS, obj)}", flush=True)
 
 
 def fresh_router_state() -> dict:
@@ -507,7 +526,7 @@ def fresh_router_state() -> dict:
 
 
 def serve_port(port: str) -> None:
-    print(f"Reading {port} @ {BAUD} -> {API_URL}", flush=True)
+    print(f"Reading {port} @ {BAUD} -> {API_URL} and {HOSTED_ORIGIN}", flush=True)
     remember_port(port)
     ser = open_quiet(port, timeout=0.5)
     buf = b""
