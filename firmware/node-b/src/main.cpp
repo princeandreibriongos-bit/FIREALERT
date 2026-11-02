@@ -30,6 +30,8 @@ static bool g_channelHeld = false;
 static bool g_recheck = false;
 static char g_trying[33] = "-";
 static char g_detail[40] = "boot";
+static uint32_t g_mismatchSince = 0;
+static uint32_t g_linkBackoffUntilMs = 0;
 
 static const char *phaseName(WifiPhase phase) {
   switch (phase) {
@@ -187,6 +189,24 @@ static void holdFallbackChannel() {
   FASerial.printf("[node-b] Wi-Fi down; ESP-NOW stays on channel %u until a saved network answers\n", WIFI_CHANNEL);
 }
 
+// ESP32 often reports a blank SSID for a moment after associating. A blank
+// reading is the network we just requested, not a different router.
+static bool ssidMatchesJoin() {
+  const String joined = WiFi.SSID();
+  if (joined.length() == 0 || g_wifi.ssid[0] == '\0') return true;
+  return joined == g_wifi.ssid;
+}
+
+static bool foreignNetworkStuck() {
+  if (ssidMatchesJoin()) {
+    g_mismatchSince = 0;
+    return false;
+  }
+  const uint32_t now = millis();
+  if (g_mismatchSince == 0) g_mismatchSince = now;
+  return now - g_mismatchSince >= 4000;
+}
+
 static void beginJoin(uint8_t index, bool force) {
   if (index >= g_book.count) return;
   copySlot(index);
@@ -318,15 +338,21 @@ static void failJoin() {
 static void serviceWifi() {
   if (g_book.count == 0) return;
 
-  if (WiFi.status() == WL_CONNECTED && g_phase == WifiPhase::Connecting && WiFi.SSID() != g_wifi.ssid) {
-    if (millis() - g_phaseMs < WIFI_CONNECT_TIMEOUT_MS) return;
-    failJoin();
+  if (WiFi.status() == WL_CONNECTED && g_phase == WifiPhase::Connecting) {
+    if (!ssidMatchesJoin()) {
+      if (millis() - g_phaseMs < WIFI_CONNECT_TIMEOUT_MS) return;
+      failJoin();
+      return;
+    }
+    noteUp();
     return;
   }
 
   if (WiFi.status() == WL_CONNECTED && g_phase != WifiPhase::Scanning) {
-    if (WiFi.SSID().length() > 0 && WiFi.SSID() != g_wifi.ssid) {
+    if (foreignNetworkStuck()) {
+      FASerial.printf("[node-b] leaving %s; saved network is %s\n", WiFi.SSID().c_str(), g_wifi.ssid);
       WiFi.disconnect(false, false);
+      g_mismatchSince = 0;
       return;
     }
     noteUp();
@@ -532,12 +558,55 @@ static void addEmptySensors(JsonDocument &doc) {
   signature["hex"] = nullptr;
 }
 
-static String networkConfigUrl() {
+static String apiUrl(const char *path) {
   String url = TELEMETRY_URL;
   const int scheme = url.indexOf("://");
   const int slash = url.indexOf('/', scheme < 0 ? 0 : scheme + 3);
-  if (slash < 0) return url + "/api/network";
-  return url.substring(0, slash) + "/api/network";
+  if (slash < 0) return url + path;
+  return url.substring(0, slash) + path;
+}
+
+static String networkConfigUrl() {
+  return apiUrl("/api/network");
+}
+
+static void postWifiLink() {
+  if (WiFi.status() != WL_CONNECTED || g_phase == WifiPhase::Connecting) return;
+  const uint32_t now = millis();
+  if (now < g_linkBackoffUntilMs) return;
+  static uint32_t lastMs = 0;
+  if (lastMs != 0 && now - lastMs < 5000) return;
+  lastMs = now;
+
+  JsonDocument doc;
+  doc["wifi"] = "up";
+  doc["ip"] = WiFi.localIP().toString();
+  doc["channel"] = WiFi.channel();
+  doc["mac"] = WiFi.macAddress();
+  doc["cellular"] = CELLULAR_MODEM_INSTALLED ? "ready" : "not-installed";
+  const char *ssid = g_joined[0] ? g_joined : g_wifi.ssid;
+  if (ssid[0] != '\0') doc["ssid"] = ssid;
+  doc["phase"] = phaseName(g_phase);
+  if (g_trying[0] != '\0' && strcmp(g_trying, "-") != 0) doc["trying"] = g_trying;
+  if (g_detail[0] != '\0' && strcmp(g_detail, "-") != 0) doc["detail"] = g_detail;
+
+  String body;
+  serializeJson(doc, body);
+  HTTPClient http;
+  http.setTimeout(1200);
+  const String url = apiUrl("/api/link");
+  if (!http.begin(url)) {
+    g_linkBackoffUntilMs = now + 30000;
+    return;
+  }
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Firealert-Gateway", GATEWAY_ID);
+  const int status = http.POST(body);
+  http.end();
+  if (status < 200 || status >= 300) {
+    FASerial.printf("[node-b] link POST %s -> HTTP %d\n", url.c_str(), status);
+    g_linkBackoffUntilMs = now + 30000;
+  }
 }
 
 static void loadRouter() {
@@ -876,6 +945,7 @@ void loop() {
   readRouterFromSerial();
   serviceWifi();
   pollDashboardRouter();
+  postWifiLink();
 
   static uint32_t lastBeatMs = 0;
   if (millis() - lastBeatMs >= 2000) {

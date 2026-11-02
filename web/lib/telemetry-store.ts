@@ -1,3 +1,5 @@
+import { saveLinkReport } from "./link-store";
+import { readLink } from "./link-status";
 import { appendSharedItem, boardBackend, noteItems, readRedisBoard, readSharedBoard, writeSharedItems } from "./shared-board";
 import { normalizeTelemetry, type NormalizedTelemetry, type RawTelemetry } from "./telemetry-core";
 import { persistTelemetryPacket } from "./telemetry-persist";
@@ -43,8 +45,32 @@ async function persistTelemetry(entry: NormalizedTelemetry | null): Promise<void
   await appendSharedItem(entry);
 }
 
+async function noteGatewayFromPacket(entry: NormalizedTelemetry): Promise<void> {
+  if (entry.simulated) return;
+  const current = readLink();
+  await saveLinkReport(
+    {
+      wifi: "up",
+      ip: current.ip,
+      channel: current.channel,
+      mac: current.mac,
+      cellular: entry.cellular_ready ? "ready" : current.cellular,
+      ssid: entry.router_ssid ?? current.ssid,
+      phase: "connected",
+      trying: entry.router_ssid ?? current.trying,
+      detail: "ok",
+    },
+    entry.received_at,
+  );
+}
+
 export async function saveTelemetry(raw: RawTelemetry | unknown, receivedAt = new Date().toISOString()): Promise<NormalizedTelemetry | null> {
   const entry = logTelemetry(raw, receivedAt);
+  try {
+    if (entry) await noteGatewayFromPacket(entry);
+  } catch (error) {
+    console.error("[FIREALERT] gateway link", error);
+  }
   try {
     await persistTelemetry(entry);
   } catch (error) {

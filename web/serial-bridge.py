@@ -25,7 +25,7 @@ LINK_URL = "http://127.0.0.1:3000/api/link"
 HEARTBEAT = re.compile(
     r"\[node-b\] heartbeat wifi=(up|down) ip=(\S+) ch=(\d+) mac=([0-9A-Fa-f:]+)"
     r"(?: cellular=(\S+))?(?: ssid=(.*?))?"
-    r"(?: phase=(\S+))?(?: trying=(\S+))?(?: detail=(\S+))?$"
+    r"(?: phase=(\S+))?(?: trying=(.*?))?(?: detail=(\S+))?$"
 )
 JOIN_FAIL = re.compile(
     r"\[node-b\] could not join (.+?) \(status (\d+)(?: detail=(\S+))?\)\s*$"
