@@ -26,7 +26,6 @@ Slots exist. The parts are not installed, and the firmware does not probe a miss
 
 | Slot | Role | Flag |
 | --- | --- | --- |
-| MAX30102 `0x57` | Heart rate and estimated SpO₂. Not a clinical measurement | `MAX30102_ENABLED` |
 | BME688 `0x77` / `0x76` | Device air temperature, humidity, pressure, gas resistance. Not CO₂ and not core body temperature | `BME688_ENABLED` (driver linked) |
 | MPU-6050 `0x68` | Acceleration and gyro for the fall model | `MPU6050_ENABLED` |
 | GPS | A satellite fix, or a last-known point that is not the current position | `GPS_ENABLED` |
@@ -63,7 +62,7 @@ Wearer id, telemetry URL, Node B MAC, and the ESP-NOW channel are still in:
 
 **Pin map (all boards, all modules):** see **[firmware/PINOUT.md](firmware/PINOUT.md)**.
 
-Summary for Node A: SCD40 on **GPIO 8 (SDA)** and **GPIO 9 (SCL)**. By default the BME688 uses a **second I2C bus** on **GPIO 17 (SDA)** and **GPIO 18 (SCL)** so each sensor can use its own dupont wires (`BME688_SEPARATE_I2C_BUS` in `config.h`). GPS uses UART **15/16**; cancel button **GPIO 4**; see **PINOUT.md** for the full map.
+Summary for Node A: SCD40, MAX30102 (`0x57`, already wired, INT open), and MPU-6050 share **GPIO 8 (SDA)** and **GPIO 9 (SCL)**. The MAX30102 flag stays off until a driver is linked. By default the BME688 uses a **second I2C bus** on **GPIO 17 (SDA)** and **GPIO 18 (SCL)** so that sensor can use its own dupont wires (`BME688_SEPARATE_I2C_BUS` in `config.h`). GPS uses UART **15/16**; cancel button **GPIO 4**; see **PINOUT.md** for the full map.
 
 ## Web app
 

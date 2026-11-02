@@ -114,9 +114,10 @@ Full pin map: [firmware/PINOUT.md](firmware/PINOUT.md). All logic-level signals 
 | Sensor | Bus | Address | What it is |
 | --- | --- | --- | --- |
 | SCD40 | GPIO 8 SDA, GPIO 9 SCL | `0x62` | Real CO₂, plus the sensor's own temperature and humidity |
+| MAX30102 | GPIO 8 SDA, GPIO 9 SCL | `0x57` | Heart rate and estimated SpO₂. Already wired. INT left open. The firmware flag stays off until a driver is linked |
 | BME688 | GPIO 17 SDA, GPIO 18 SCL | `0x77` when SDO is tied to 3.3 V. `0x76` when SDO is tied to GND | Device-air temperature, humidity, pressure, gas resistance |
 
-The BME688 is not on the SCD40 pins. Each ESP32 pin only has one female dupont, so the sensors do not share a bus. The BME688 driver is the Adafruit BME680 library on `TwoWire(1)`. The bus is chosen in the constructor (`Adafruit_BME680(&g_bme688Wire)`). `begin()` takes the address only. Passing the bus as the second argument does not select the bus. Gas resistance is not a carbon monoxide or LPG alarm. CO₂ comes from the SCD40 only. BME temperature is air at the board, not body temperature.
+The BME688 is not on the SCD40 pins. The MAX30102 and the MPU-6050 are. They share GPIO 8 and GPIO 9 with the SCD40. The BME688 stays on its own pair because each ESP32 pin only has one female dupont for a separate bus. The BME688 driver is the Adafruit BME680 library on `TwoWire(1)`. The bus is chosen in the constructor (`Adafruit_BME680(&g_bme688Wire)`). `begin()` takes the address only. Passing the bus as the second argument does not select the bus. Gas resistance is not a carbon monoxide or LPG alarm. CO₂ comes from the SCD40 only. BME temperature is air at the board, not body temperature.
 
 Type `scan` on the wearable serial port to print which addresses answer on each bus.
 
@@ -124,7 +125,7 @@ Type `scan` on the wearable serial port to print which addresses answer on each 
 
 Do not turn these flags on until the part is wired and a driver is linked. They are listed in `firmware/node-a/include/config.h` and in the README placeholder table.
 
-- MAX30102, MPU-6050, GPS, battery divider, buzzer, touchscreen
+- GPS, battery divider, buzzer, and touchscreen. The MAX30102 is already on GPIO 8/9; leave `MAX30102_ENABLED` off until its driver is linked
 - Edge Impulse fall model (`predictFall()` stays false). Serial command `fall` starts the 10-second cancel window. GPIO 4, active low, cancels it
 - Cellular modem on the gateway
 - MQ-6 LPG module. It is the chosen cheap leak sensor and it is not in the firmware yet. When it is added: module VCC to the devkit 5 V pin, GND to GND, AO to GPIO 1 through two 10 kΩ resistors (one from AO to GPIO 1, one from GPIO 1 to GND), DO left unconnected. Heater needs about 10–15 minutes after each power-up. The reading is a relative level, not %LEL

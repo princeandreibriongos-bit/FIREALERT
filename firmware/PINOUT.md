@@ -14,8 +14,8 @@ Single source of truth for wiring is `firmware/node-a/include/config.h` and `fir
 
 | GPIO | Function | Device / role | Firmware flag | Status |
 | --- | --- | --- | --- | --- |
-| **8** | I2C **SDA** | SCD40 (bus 0) | `I2C_SDA_PIN` | **In use** |
-| **9** | I2C **SCL** | SCD40 (bus 0) | `I2C_SCL_PIN` | **In use** |
+| **8** | I2C **SDA** | SCD40, MAX30102, MPU-6050 (bus 0) | `I2C_SDA_PIN` | **In use** |
+| **9** | I2C **SCL** | SCD40, MAX30102, MPU-6050 (bus 0) | `I2C_SCL_PIN` | **In use** |
 | **17** | I2C **SDA** | BME688 (bus 1, when separate) | `BME688_I2C_SDA_PIN` | **In use** |
 | **18** | I2C **SCL** | BME688 (bus 1, when separate) | `BME688_I2C_SCL_PIN` | **In use** |
 | **40** | — | Free. Do not use for the gyro while SDA/SCL are on the SCD40 bus | — | Open |
@@ -45,11 +45,11 @@ Single source of truth for wiring is `firmware/node-a/include/config.h` and `fir
 
 **Alternative:** Set `BME688_SEPARATE_I2C_BUS = false` and parallel-wire BME688 to the same **8/9** as SCD40 (breadboard or soldered bus).
 
-The MPU-6050 shares **GPIO 8/9** with the SCD40. Leave **GPIO 17/18** for the BME688 only.
+The MAX30102 and the MPU-6050 share **GPIO 8/9** with the SCD40. Leave **GPIO 17/18** for the BME688 only.
 
 ---
 
-## Shared I2C bus 0 (GPIO 8 + 9) — SCD40 and optional sensors
+## Shared I2C bus 0 (GPIO 8 + 9) — SCD40, MAX30102, MPU-6050
 
 On **bus 0**, devices share **one** SDA/SCL pair:
 
@@ -63,7 +63,7 @@ Each module must have a **unique I2C address** (set by hardware, e.g. BME688 SDO
 | --- | --- | --- | --- | --- |
 | SCD40 | `0x62` | `SCD40_I2C_ADDR` | `SCD40_ENABLED` | **Live** |
 | BME688 | `0x77` or `0x76` | `BME688_I2C_ADDR` / `_ALT` | `BME688_ENABLED` | **Live** (tries both at boot) |
-| MAX30102 | `0x57` | `MAX30102_I2C_ADDR` | `MAX30102_ENABLED` | Not installed |
+| MAX30102 | `0x57` | `MAX30102_I2C_ADDR` | `MAX30102_ENABLED` | **Wired** on GPIO 8 / 9. Flag stays off until a driver is linked |
 | MPU-6050 | `0x68` | `MPU6050_I2C_ADDR` | `MPU6050_ENABLED` | **GPIO 8 / 9** with the SCD40 |
 
 Bus speed: **100 kHz** (`I2C_FREQUENCY_HZ`).
@@ -118,18 +118,19 @@ Not measured by BME688: **CO₂** (SCD40 only). Gas resistance is **not** a cert
 
 ---
 
-### MAX30102 (planned — heart rate, SpO₂ estimate)
+### MAX30102 (wired — heart rate, SpO₂ estimate)
+
+The module is already on the wearable. It shares **GPIO 8 / 9** with the SCD40 and the MPU-6050. Leave the BME688 on **GPIO 17 / 18**. `MAX30102_ENABLED` stays **false** until a driver is linked, so the board does not publish heart rate yet.
 
 | MAX30102 pin | Connect to Node A |
 | --- | --- |
 | VIN / 3V3 | **3V3** |
 | GND | **GND** |
-| SDA | **GPIO 8** |
-| SCL | **GPIO 9** |
+| SDA | **GPIO 8** (same net as SCD40 SDA) |
+| SCL | **GPIO 9** (same net as SCD40 SCL) |
+| INT | Leave open |
 
-Address: **`0x57`**. Enable only after driver is linked: `MAX30102_ENABLED = true` in `config.h`.
-
-*(Interrupt pin not assigned in firmware yet — add to `config.h` when the driver is implemented.)*
+Address: **`0x57`**.
 
 ---
 
@@ -264,3 +265,4 @@ After Node B connects to Wi-Fi, serial log prints **channel** and **STA MAC**. S
 | 2026-10-30 | MPU-6050 SDA/SCL moved onto GPIO 17/18 with the BME688 |
 | 2026-10-30 | MPU-6050 returned to GPIO 40/41 after it stayed silent on both pairs |
 | 2026-10-30 | MPU-6050 SDA/SCL moved onto GPIO 8/9 with the SCD40 |
+| 2026-11-03 | MAX30102 recorded as wired on GPIO 8/9 with the SCD40 |
