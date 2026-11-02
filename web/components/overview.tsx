@@ -45,6 +45,7 @@ export function Overview() {
   const gatewayState = gatewayPhase(gateway, now);
   const wearableState = wearablePhase(crew, now);
   const linkReady = gatewayState === "up" && wearableState === "live";
+  const linkQuiet = gatewayState === "stale" || gatewayState === "down" || wearableState === "stale";
 
   return (
     <div className="page">
@@ -55,7 +56,7 @@ export function Overview() {
       />
 
       {error ? <p className="banner is-error">{error}</p> : null}
-      <section className={`link-banner is-${linkReady ? "live" : wearableState === "stale" || gatewayState === "down" ? "wait" : "idle"}`} aria-live="polite">
+      <section className={`link-banner is-${linkReady ? "live" : linkQuiet ? "wait" : "idle"}`} aria-live="polite">
         <div>
           <p className="eyebrow">Hardware link</p>
           <h2>
@@ -65,11 +66,15 @@ export function Overview() {
                 ? "Gateway is on Wi-Fi. Waiting for the wearable."
                 : wearableState === "live"
                   ? "Wearable packets are arriving."
-                  : "Waiting for a live link"}
+                  : gatewayState === "stale" || wearableState === "stale"
+                    ? hardware
+                      ? `${hardware.wearer_id} is on the board. The link is quiet.`
+                      : "The gateway is on the board. The link is quiet."
+                    : "Waiting for a live link"}
           </h2>
           <p className="card-note">
             {hardware
-              ? `${hardware.wearer_id} · ${readingLine(hardware)} · ${ageLabel(hardware.received_at, now)}`
+              ? `${hardware.wearer_id} · ${hardware.source_mac ?? "wearable"} · ${readingLine(hardware)} · last packet ${manilaTime(hardware.received_at)} PHT (${ageLabel(hardware.received_at, now)})`
               : "No wearable packet yet. Sample crew does not count as a live connection."}
           </p>
         </div>
@@ -85,7 +90,11 @@ export function Overview() {
                     : gateway?.detail === "not_in_range" || gateway?.detail === "ssid_not_found"
                       ? "Wi-Fi down (not in range)"
                       : "Wi-Fi down"
-                  : "Waiting (USB)"}
+                  : gatewayState === "stale"
+                    ? gateway?.ssid
+                      ? `Last seen · ${gateway.ssid}`
+                      : "Last seen"
+                    : "Waiting (USB)"}
             </dd>
           </div>
           <div>

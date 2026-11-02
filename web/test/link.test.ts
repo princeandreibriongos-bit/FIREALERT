@@ -92,7 +92,7 @@ describe("connection phases", () => {
         },
         now,
       ),
-      "waiting",
+      "stale",
     );
   });
 
@@ -109,6 +109,28 @@ describe("connection phases", () => {
 
 describe("gateway diagnosis", () => {
   const now = Date.parse("2026-10-26T03:00:10.000Z");
+
+  it("keeps a quiet gateway visible and names a different saved network", () => {
+    const result = diagnoseGateway(
+      {
+        wifi: "up",
+        ip: "192.168.100.25",
+        channel: 11,
+        mac: "14:C1:9F:C8:57:D8",
+        cellular: "not-installed",
+        ssid: "SKYFiber_2.4GHz_HuF7",
+        phase: "connected",
+        trying: "SKYFiber_2.4GHz_HuF7",
+        detail: "ok",
+        seen_at: "2026-10-26T02:59:00.000Z",
+      },
+      now,
+      "PLDTHOMEFIBRYeau4",
+    );
+    assert.equal(result.title, "Link went quiet");
+    assert.match(result.summary, /SKYFiber_2.4GHz_HuF7/);
+    assert.match(result.summary, /PLDTHOMEFIBRYeau4/);
+  });
 
   it("treats missing heartbeats as a USB problem, not a password problem", () => {
     const result = diagnoseGateway(null, now, "Phone");

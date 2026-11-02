@@ -20,7 +20,7 @@ type Stored = {
 const emptyProfile = (): Profile => ({ ssid: "", password: "", updated_at: null });
 
 export function RouterForm() {
-  const [kind, setKind] = useState<Kind>("hotspot");
+  const [kind, setKind] = useState<Kind>("router");
   const [active, setActive] = useState<Kind>("router");
   const [profiles, setProfiles] = useState<Stored>({ active: "router", router: emptyProfile(), hotspot: emptyProfile() });
   const [ssid, setSsid] = useState("");
@@ -50,7 +50,7 @@ export function RouterForm() {
           return;
         }
         const stored: Stored = { active: json.active, router: json.router, hotspot: json.hotspot };
-        if (!cancelled) applyStored(stored, "hotspot");
+        if (!cancelled) applyStored(stored, stored.active);
       } catch {
         if (!cancelled) setError("The saved networks could not be loaded.");
       } finally {

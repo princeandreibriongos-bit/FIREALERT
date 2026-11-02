@@ -100,13 +100,14 @@ const HEARTBEAT_FRESH_MS = 18_000;
 /** Packets land about every 3–5s; allow a few misses before the pill flips to stale. */
 const WEARABLE_FRESH_MS = 45_000;
 
-export type GatewayPhase = "up" | "down" | "waiting";
+export type GatewayPhase = "up" | "down" | "stale" | "waiting";
 export type WearablePhase = "live" | "stale" | "waiting";
 
 export function gatewayPhase(link: GatewayLink | null, now: number): GatewayPhase {
   if (!link?.seen_at) return "waiting";
   const seen = Date.parse(link.seen_at);
-  if (Number.isNaN(seen) || now - seen > HEARTBEAT_FRESH_MS) return "waiting";
+  if (Number.isNaN(seen)) return "waiting";
+  if (now - seen > HEARTBEAT_FRESH_MS) return "stale";
   return link.wifi === "up" ? "up" : "down";
 }
 
@@ -180,6 +181,21 @@ export function diagnoseGateway(link: GatewayLink | null, now: number, activeSsi
       summary: `Gateway is on ${name}${link?.ip ? ` at ${link.ip}` : ""}. Password and network name are working.`,
       likely: "ok",
       steps: ["If the wearable pill is still waiting, power the wrist node and keep both boards on the same 2.4 GHz network/channel."],
+    };
+  }
+
+  if (phase === "stale") {
+    const name = link?.ssid || trying || "the last network";
+    const savedElsewhere = activeSsid && activeSsid !== link?.ssid && activeSsid !== link?.trying;
+    return {
+      title: "Link went quiet",
+      summary: `The gateway was on ${name}${link?.ip ? ` at ${link.ip}` : ""}, then stopped checking in. The board still has that last report.${savedElsewhere ? ` This page is saved for ${activeSsid}, and the gateway has not checked in on that name.` : ""}`,
+      likely: "usb",
+      steps: [
+        "Leave the gateway powered and on the same 2.4 GHz router.",
+        "On the computer plugged into Node B, run npm run bridge from web/ so heartbeats reach port 3000.",
+        "A quiet link is not a wrong-password result. Wait for a new heartbeat before changing the Wi-Fi name.",
+      ],
     };
   }
 

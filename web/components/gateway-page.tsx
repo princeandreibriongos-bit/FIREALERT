@@ -105,7 +105,7 @@ export function GatewayPage() {
               </button>
             </div>
             <p className={`metric-value ${phase === "up" ? "is-ok" : toneFor(shown.likely)}`} style={{ fontSize: "1.15rem" }}>
-              {phase === "up" ? "Connected" : phase === "down" ? "Wi-Fi down" : "Waiting"}
+              {phase === "up" ? "Connected" : phase === "down" ? "Wi-Fi down" : phase === "stale" ? "Last seen" : "Waiting"}
             </p>
             <p className="card-note">
               {phase === "waiting"

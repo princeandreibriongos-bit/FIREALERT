@@ -1,5 +1,6 @@
 import { saveLinkReport } from "./link-store";
 import { readLink } from "./link-status";
+import { packetKey } from "./board-shape";
 import { appendSharedItem, boardBackend, noteItems, readRedisBoard, readSharedBoard, writeSharedItems } from "./shared-board";
 import { normalizeTelemetry, type NormalizedTelemetry, type RawTelemetry } from "./telemetry-core";
 import { persistTelemetryPacket } from "./telemetry-persist";
@@ -84,11 +85,30 @@ export async function saveTelemetry(raw: RawTelemetry | unknown, receivedAt = ne
   return entry;
 }
 
+function mergeTelemetry(local: NormalizedTelemetry[], remote: NormalizedTelemetry[]): NormalizedTelemetry[] {
+  const seen = new Set<string>();
+  const merged: NormalizedTelemetry[] = [];
+  for (const item of [...local, ...remote]) {
+    const key = packetKey(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(item);
+  }
+  merged.sort((a, b) => Date.parse(b.received_at) - Date.parse(a.received_at));
+  return merged.slice(0, MAX_LOGS);
+}
+
 export async function readTelemetry(): Promise<NormalizedTelemetry[]> {
   const kind = boardBackend();
-  if (kind === "memory" || (kind === "shared" && process.env.NODE_ENV === "development")) return listTelemetry();
-  if (kind === "redis") return (await readRedisBoard()).items;
-  return (await readSharedBoard()).items;
+  const local = listTelemetry();
+  if (kind === "memory") return local;
+  try {
+    const remote = kind === "redis" ? (await readRedisBoard()).items : (await readSharedBoard()).items;
+    return mergeTelemetry(local, remote);
+  } catch (error) {
+    console.error("[FIREALERT] telemetry read", error);
+    return local;
+  }
 }
 
 export async function writeTelemetry(entries: NormalizedTelemetry[]): Promise<void> {
