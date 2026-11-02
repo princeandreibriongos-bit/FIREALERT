@@ -2,21 +2,22 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 config({ path: ".env" });
 
-import { neon } from "@neondatabase/serverless";
-import bcrypt from "bcryptjs";
+import { eq } from "drizzle-orm";
+import { hashPassword } from "../lib/auth/password";
+import { databaseUrl, getDb } from "../lib/db/client";
+import { users } from "../lib/db/schema";
 
 async function main() {
-  const url = (process.env.DATABASE_URL || "").trim();
-  if (!url) throw new Error("DATABASE_URL missing");
-  const sql = neon(url);
-  const hash = await bcrypt.hash("admin123", 12);
-  const existing = await sql`select id from users where username = 'admin' limit 1`;
+  if (!databaseUrl()) throw new Error("DATABASE_URL missing");
+  const db = getDb();
+  const passwordHash = await hashPassword("admin123");
+  const existing = await db.select({ id: users.id }).from(users).where(eq(users.username, "admin")).limit(1);
   if (existing.length) {
-    await sql`update users set password_hash = ${hash} where username = 'admin'`;
+    await db.update(users).set({ passwordHash, role: "admin" }).where(eq(users.username, "admin"));
     console.log("admin_updated");
     return;
   }
-  await sql`insert into users (username, password_hash) values ('admin', ${hash})`;
+  await db.insert(users).values({ username: "admin", passwordHash, role: "admin", displayName: "Station admin" });
   console.log("admin_created");
 }
 

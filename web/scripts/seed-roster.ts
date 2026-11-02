@@ -2,33 +2,15 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 config({ path: ".env" });
 
-import { neon } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-http";
-import { boolean, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { getDb } from "../lib/db/client";
+import { crewMembers, localNodes } from "../lib/db/schema";
 
-const url = (process.env.DATABASE_URL || "").trim();
-if (!url) {
+if (!(process.env.DATABASE_URL || "").trim()) {
   console.error("DATABASE_URL is not set in web/.env.local");
   process.exit(1);
 }
 
-const crewMembers = pgTable("crew_members", {
-  wearerId: text("wearer_id").primaryKey(),
-  displayName: text("display_name").notNull(),
-  callsign: text("callsign").notNull(),
-  unit: text("unit").notNull().default("Alpha"),
-  role: text("role").notNull().default("firefighter"),
-  active: boolean("active").notNull().default(true),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
-});
-
-const localNodes = pgTable("local_nodes", {
-  id: text("id").primaryKey(),
-  label: text("label").notNull(),
-  siteName: text("site_name"),
-  internetUp: boolean("internet_up").notNull().default(false),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
-});
+const db = getDb();
 
 const SAMPLE = [
   { wearerId: "FF-01", displayName: "Rivera, A.", callsign: "FF-01", unit: "Alpha", role: "firefighter", active: true },
@@ -36,8 +18,6 @@ const SAMPLE = [
   { wearerId: "FF-03", displayName: "Cruz, J.", callsign: "FF-03", unit: "Bravo", role: "firefighter", active: true },
   { wearerId: "FF-04", displayName: "Reyes, K.", callsign: "FF-04", unit: "Bravo", role: "officer", active: true },
 ];
-
-const db = drizzle(neon(url));
 
 for (const member of SAMPLE) {
   await db
