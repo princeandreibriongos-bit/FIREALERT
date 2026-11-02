@@ -1,0 +1,916 @@
+#include <Arduino.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <esp_now.h>
+#include <esp_wifi.h>
+#include <ArduinoJson.h>
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "config.h"
+#include "telemetry.h"
+#include "wifi_store.h"
+#include "dual_serial.h"
+
+static WifiCreds g_wifi = {};
+static WifiBook g_book = {};
+static char g_appliedSsid[33] = {};
+static char g_appliedPass[64] = {};
+static char g_joined[33] = {};
+
+enum class WifiPhase : uint8_t { Idle, Connecting, Scanning, Hold, Connected };
+
+static WifiPhase g_phase = WifiPhase::Idle;
+static uint32_t g_phaseMs = 0;
+static uint8_t g_candidate[WIFI_SLOTS] = {};
+static uint8_t g_candidateCount = 0;
+static uint8_t g_candidatePos = 0;
+static bool g_channelHeld = false;
+static bool g_recheck = false;
+static char g_trying[33] = "-";
+static char g_detail[40] = "boot";
+
+static const char *phaseName(WifiPhase phase) {
+  switch (phase) {
+    case WifiPhase::Connecting:
+      return "connecting";
+    case WifiPhase::Scanning:
+      return "scanning";
+    case WifiPhase::Hold:
+      return "hold";
+    case WifiPhase::Connected:
+      return "connected";
+    default:
+      return "idle";
+  }
+}
+
+static void setTrying(const char *ssid) {
+  if (ssid == nullptr || ssid[0] == '\0') {
+    strncpy(g_trying, "-", sizeof(g_trying) - 1);
+  } else {
+    strncpy(g_trying, ssid, sizeof(g_trying) - 1);
+  }
+  g_trying[sizeof(g_trying) - 1] = '\0';
+}
+
+static void setDetail(const char *detail) {
+  if (detail == nullptr || detail[0] == '\0') {
+    strncpy(g_detail, "-", sizeof(g_detail) - 1);
+  } else {
+    strncpy(g_detail, detail, sizeof(g_detail) - 1);
+  }
+  g_detail[sizeof(g_detail) - 1] = '\0';
+}
+
+/** Map ESP32 STA status to a board-readable join failure code. */
+static const char *joinFailDetail(wl_status_t status) {
+  switch (status) {
+    case WL_NO_SSID_AVAIL:
+      return "ssid_not_found";
+    case WL_CONNECT_FAILED:
+      return "bad_password";
+    case WL_CONNECTION_LOST:
+      return "connection_lost";
+    case WL_DISCONNECTED:
+      return "disconnected";
+    default:
+      return "join_failed";
+  }
+}
+
+static constexpr size_t QUEUE_DEPTH = 32;
+static constexpr size_t PACKET_MAX = 250;
+/** After a failed Wi-Fi POST, skip HTTP for a while — USB serial already delivered the packet. */
+static uint32_t g_httpBackoffUntilMs = 0;
+
+struct QueuedPacket {
+  uint8_t data[PACKET_MAX];
+  uint8_t len;
+  uint8_t srcMac[6];
+  int8_t rssi;
+};
+
+static QueuedPacket g_queue[QUEUE_DEPTH];
+static volatile uint8_t g_qHead = 0;
+static volatile uint8_t g_qTail = 0;
+static portMUX_TYPE g_queueMux = portMUX_INITIALIZER_UNLOCKED;
+
+static bool queueIsEmpty() { return g_qHead == g_qTail; }
+
+static bool queuePush(const QueuedPacket &item) {
+  portENTER_CRITICAL(&g_queueMux);
+  const uint8_t next = static_cast<uint8_t>((g_qHead + 1) % QUEUE_DEPTH);
+  if (next == g_qTail) {
+    portEXIT_CRITICAL(&g_queueMux);
+    return false;
+  }
+  g_queue[g_qHead] = item;
+  g_qHead = next;
+  portEXIT_CRITICAL(&g_queueMux);
+  return true;
+}
+
+static bool queuePop(QueuedPacket &out) {
+  portENTER_CRITICAL(&g_queueMux);
+  if (queueIsEmpty()) {
+    portEXIT_CRITICAL(&g_queueMux);
+    return false;
+  }
+  out = g_queue[g_qTail];
+  g_qTail = static_cast<uint8_t>((g_qTail + 1) % QUEUE_DEPTH);
+  portEXIT_CRITICAL(&g_queueMux);
+  return true;
+}
+
+static void enqueue(const uint8_t *mac, const uint8_t *data, int len, int8_t rssi) {
+  if (mac == nullptr || data == nullptr || len <= 0 || len > static_cast<int>(PACKET_MAX)) {
+    return;
+  }
+  QueuedPacket item = {};
+  memcpy(item.data, data, static_cast<size_t>(len));
+  item.len = static_cast<uint8_t>(len);
+  memcpy(item.srcMac, mac, 6);
+  item.rssi = rssi;
+  queuePush(item);
+}
+
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+static void onEspNowRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
+  if (info == nullptr) {
+    return;
+  }
+  const int8_t rssi = info->rx_ctrl != nullptr ? info->rx_ctrl->rssi : 0;
+  enqueue(info->src_addr, data, len, rssi);
+}
+#else
+static void onEspNowRecv(const uint8_t *mac, const uint8_t *data, int len) {
+  enqueue(mac, data, len, 0);
+}
+#endif
+
+static void formatMac(const uint8_t *mac, char *out, size_t outLen) {
+  snprintf(out, outLen, "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4],
+           mac[5]);
+}
+
+static void rememberApplied(const char *ssid, const char *password) {
+  strncpy(g_appliedSsid, ssid, sizeof(g_appliedSsid) - 1);
+  g_appliedSsid[sizeof(g_appliedSsid) - 1] = '\0';
+  strncpy(g_appliedPass, password, sizeof(g_appliedPass) - 1);
+  g_appliedPass[sizeof(g_appliedPass) - 1] = '\0';
+}
+
+static void copySlot(uint8_t index) {
+  const WifiSlot &slot = g_book.slots[index];
+  strncpy(g_wifi.ssid, slot.ssid, sizeof(g_wifi.ssid) - 1);
+  g_wifi.ssid[sizeof(g_wifi.ssid) - 1] = '\0';
+  strncpy(g_wifi.password, slot.password, sizeof(g_wifi.password) - 1);
+  g_wifi.password[sizeof(g_wifi.password) - 1] = '\0';
+  g_wifi.fromNvs = true;
+}
+
+static int8_t slotForSsid(const char *ssid) {
+  for (uint8_t i = 0; i < g_book.count; i++) {
+    if (strcmp(g_book.slots[i].ssid, ssid) == 0) return static_cast<int8_t>(i);
+  }
+  return -1;
+}
+
+static void holdFallbackChannel() {
+  if (g_channelHeld) return;
+  esp_wifi_set_promiscuous(true);
+  esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
+  esp_wifi_set_promiscuous(false);
+  g_channelHeld = true;
+  FASerial.printf("[node-b] Wi-Fi down; ESP-NOW stays on channel %u until a saved network answers\n", WIFI_CHANNEL);
+}
+
+static void beginJoin(uint8_t index, bool force) {
+  if (index >= g_book.count) return;
+  copySlot(index);
+  g_channelHeld = false;
+  g_recheck = false;
+  setTrying(g_wifi.ssid);
+  WiFi.setSleep(false);
+  WiFi.mode(WIFI_STA);
+  if (!force && WiFi.status() == WL_CONNECTED && WiFi.SSID() == g_wifi.ssid) {
+    g_phase = WifiPhase::Connected;
+    g_phaseMs = millis();
+    setDetail("ok");
+    return;
+  }
+  WiFi.disconnect(false, false);
+  WiFi.begin(g_wifi.ssid, g_wifi.password);
+  g_phase = WifiPhase::Connecting;
+  g_phaseMs = millis();
+  setDetail("connecting");
+  FASerial.printf("[node-b] joining %s\n", g_wifi.ssid);
+}
+
+static void armPreferred(bool force) {
+  if (g_book.count == 0) return;
+  g_candidateCount = 1;
+  g_candidatePos = 0;
+  g_candidate[0] = g_book.preferred;
+  beginJoin(g_book.preferred, force);
+}
+
+static void queueVisible(int found) {
+  bool seen[WIFI_SLOTS] = {};
+  int32_t rssi[WIFI_SLOTS];
+  for (uint8_t i = 0; i < WIFI_SLOTS; i++) rssi[i] = -127;
+  for (int i = 0; i < found; i++) {
+    const int8_t slot = slotForSsid(WiFi.SSID(i).c_str());
+    if (slot < 0) continue;
+    seen[slot] = true;
+    const int32_t level = WiFi.RSSI(i);
+    if (level > rssi[slot]) rssi[slot] = level;
+  }
+  WiFi.scanDelete();
+
+  uint8_t rest[WIFI_SLOTS];
+  uint8_t restCount = 0;
+  for (uint8_t i = 0; i < g_book.count; i++) {
+    if (i == g_book.preferred || !seen[i]) continue;
+    rest[restCount++] = i;
+  }
+  for (uint8_t a = 0; a + 1 < restCount; a++) {
+    for (uint8_t b = a + 1; b < restCount; b++) {
+      if (rssi[rest[b]] > rssi[rest[a]]) {
+        const uint8_t tmp = rest[a];
+        rest[a] = rest[b];
+        rest[b] = tmp;
+      }
+    }
+  }
+
+  g_candidateCount = 0;
+  g_candidatePos = 0;
+  if (g_book.count > 0 && seen[g_book.preferred]) g_candidate[g_candidateCount++] = g_book.preferred;
+  for (uint8_t i = 0; i < restCount; i++) g_candidate[g_candidateCount++] = rest[i];
+  if (g_book.count > 0 && !seen[g_book.preferred]) g_candidate[g_candidateCount++] = g_book.preferred;
+}
+
+static bool onPreferred() {
+  if (g_book.count == 0) return true;
+  return WiFi.SSID() == g_book.slots[g_book.preferred].ssid;
+}
+
+static void noteUp() {
+  if (g_phase == WifiPhase::Connected) return;
+  g_phase = WifiPhase::Connected;
+  g_phaseMs = millis();
+  g_channelHeld = false;
+  g_recheck = false;
+  String ssid = WiFi.SSID();
+  if (ssid.length() == 0) ssid = g_wifi.ssid;
+  strncpy(g_joined, ssid.c_str(), sizeof(g_joined) - 1);
+  g_joined[sizeof(g_joined) - 1] = '\0';
+  setTrying(g_joined);
+  setDetail("ok");
+  FASerial.print("[node-b] Wi-Fi OK  SSID=");
+  FASerial.print(g_joined);
+  FASerial.print("  IP=");
+  FASerial.print(WiFi.localIP());
+  FASerial.print("  channel=");
+  FASerial.print(WiFi.channel());
+  FASerial.print("  STA MAC=");
+  FASerial.println(WiFi.macAddress());
+}
+
+static void startScan() {
+  g_recheck = false;
+  setDetail("scanning");
+  FASerial.println("[node-b] looking for a saved network");
+  const int started = WiFi.scanNetworks(true, true);
+  if (started == WIFI_SCAN_FAILED) {
+    g_phase = WifiPhase::Hold;
+    g_phaseMs = millis();
+    setDetail("scan_failed");
+    holdFallbackChannel();
+    return;
+  }
+  g_phase = WifiPhase::Scanning;
+  g_phaseMs = millis();
+}
+
+static void failJoin() {
+  const wl_status_t status = WiFi.status();
+  const char *detail = joinFailDetail(status);
+  setTrying(g_wifi.ssid);
+  setDetail(detail);
+  FASerial.printf("[node-b] could not join %s (status %d detail=%s)\n", g_wifi.ssid, static_cast<int>(status),
+                detail);
+  g_candidatePos++;
+  if (g_candidatePos < g_candidateCount) {
+    beginJoin(g_candidate[g_candidatePos], true);
+    return;
+  }
+  WiFi.disconnect(false, false);
+  g_candidateCount = 0;
+  g_candidatePos = 0;
+  g_phase = WifiPhase::Idle;
+  startScan();
+}
+
+static void serviceWifi() {
+  if (g_book.count == 0) return;
+
+  if (WiFi.status() == WL_CONNECTED && g_phase == WifiPhase::Connecting && WiFi.SSID() != g_wifi.ssid) {
+    if (millis() - g_phaseMs < WIFI_CONNECT_TIMEOUT_MS) return;
+    failJoin();
+    return;
+  }
+
+  if (WiFi.status() == WL_CONNECTED && g_phase != WifiPhase::Scanning) {
+    if (WiFi.SSID().length() > 0 && WiFi.SSID() != g_wifi.ssid) {
+      WiFi.disconnect(false, false);
+      return;
+    }
+    noteUp();
+    if (!onPreferred() && millis() - g_phaseMs >= 45000) {
+      FASerial.println("[node-b] checking whether the preferred network is back");
+      g_recheck = true;
+      if (WiFi.scanNetworks(true, true) == WIFI_SCAN_FAILED) {
+        g_recheck = false;
+        g_phaseMs = millis();
+      } else {
+        g_phase = WifiPhase::Scanning;
+      }
+    }
+    return;
+  }
+
+  if (g_phase == WifiPhase::Scanning && WiFi.status() == WL_CONNECTED && g_recheck) {
+    const int found = WiFi.scanComplete();
+    if (found == WIFI_SCAN_RUNNING) return;
+    bool visible = false;
+    if (found > 0) {
+      const char *want = g_book.slots[g_book.preferred].ssid;
+      for (int i = 0; i < found; i++) {
+        if (WiFi.SSID(i) == want && WiFi.RSSI(i) >= -85) visible = true;
+      }
+    }
+    WiFi.scanDelete();
+    g_recheck = false;
+    if (visible && !onPreferred()) {
+      FASerial.printf("[node-b] preferred network %s is back\n", g_book.slots[g_book.preferred].ssid);
+      armPreferred(true);
+      return;
+    }
+    g_phase = WifiPhase::Connected;
+    g_phaseMs = millis();
+    return;
+  }
+
+  if (g_phase == WifiPhase::Connected) {
+    FASerial.println("[node-b] Wi-Fi dropped");
+    g_joined[0] = '\0';
+    g_recheck = false;
+    g_candidatePos = g_candidateCount;
+    g_phase = WifiPhase::Idle;
+    setDetail("connection_lost");
+  }
+
+  if (g_phase == WifiPhase::Connecting) {
+    if (millis() - g_phaseMs < WIFI_CONNECT_TIMEOUT_MS) return;
+    failJoin();
+    return;
+  }
+
+  if (g_phase == WifiPhase::Scanning) {
+    const int found = WiFi.scanComplete();
+    if (found == WIFI_SCAN_RUNNING) return;
+    if (found < 0) {
+      WiFi.scanDelete();
+      g_phase = WifiPhase::Hold;
+      g_phaseMs = millis();
+      holdFallbackChannel();
+      return;
+    }
+    queueVisible(found);
+    FASerial.printf("[node-b] %d network(s) in range, %u saved match\n", found, static_cast<unsigned>(g_candidateCount));
+    if (g_candidateCount == 0) {
+      FASerial.print("[node-b] none of the saved networks are in range:");
+      for (uint8_t i = 0; i < g_book.count; i++) {
+        FASerial.print(' ');
+        FASerial.print(g_book.slots[i].ssid);
+      }
+      FASerial.println();
+      if (g_book.count > 0) setTrying(g_book.slots[g_book.preferred].ssid);
+      setDetail("not_in_range");
+      g_phase = WifiPhase::Hold;
+      g_phaseMs = millis();
+      holdFallbackChannel();
+      return;
+    }
+    beginJoin(g_candidate[0], false);
+    return;
+  }
+
+  if (g_phase == WifiPhase::Hold) {
+    if (millis() - g_phaseMs < 10000) return;
+    g_phase = WifiPhase::Idle;
+  }
+
+  if (g_candidatePos < g_candidateCount) {
+    beginJoin(g_candidate[g_candidatePos], false);
+    return;
+  }
+  startScan();
+}
+
+static bool initEspNow() {
+  // Units are 0.25 dBm. Match the wearable so short-range drops are rarer.
+  esp_wifi_set_max_tx_power(84);
+  if (esp_now_init() != ESP_OK) {
+    FASerial.println("[node-b] esp_now_init failed");
+    return false;
+  }
+  esp_now_register_recv_cb(onEspNowRecv);
+  FASerial.println("[node-b] ESP-NOW listening");
+  return true;
+}
+
+static void appendNullableFloat(JsonObject obj, const char *key, float value) {
+  if (isnan(value) || isinf(value)) {
+    obj[key] = nullptr;
+  } else {
+    obj[key] = value;
+  }
+}
+
+static const char *fallName(uint8_t state) {
+  switch (state) {
+    case FALL_POSSIBLE:
+      return "possible";
+    case FALL_GRACE:
+      return "grace";
+    case FALL_DISTRESS:
+      return "distress";
+    case FALL_CANCELLED:
+      return "cancelled";
+    default:
+      return "idle";
+  }
+}
+
+static const char *localOutput(bool requested, bool installed) {
+  if (installed) {
+    return requested ? "active" : "installed";
+  }
+  return requested ? "requested_not_installed" : "not_installed";
+}
+
+static void appendHex(JsonObject obj, const char *key, const uint8_t *data, size_t len) {
+  if (data == nullptr || len == 0) {
+    obj[key] = nullptr;
+    return;
+  }
+  String hex;
+  hex.reserve(len * 2);
+  for (size_t i = 0; i < len; i++) {
+    char byteText[3];
+    snprintf(byteText, sizeof(byteText), "%02x", data[i]);
+    hex += byteText;
+  }
+  obj[key] = hex;
+}
+
+static void addUplink(JsonDocument &doc, uint32_t flags) {
+  JsonObject uplink = doc["uplink"].to<JsonObject>();
+  const bool cellular = CELLULAR_MODEM_INSTALLED && (flags & FLAG_UPLINK_CELLULAR) != 0;
+  uplink["active"] = cellular ? "cellular" : "wifi";
+  uplink["planned"] = "cellular";
+  uplink["cellular_ready"] = CELLULAR_MODEM_INSTALLED;
+}
+
+static void addEmptySensors(JsonDocument &doc) {
+  JsonObject max30102 = doc["max30102"].to<JsonObject>();
+  max30102["ok"] = false;
+  max30102["i2c_addr"] = "0x57";
+  max30102["heart_rate_bpm"] = nullptr;
+  max30102["spo2_percent"] = nullptr;
+
+  JsonObject mpu = doc["mpu6050"].to<JsonObject>();
+  mpu["ok"] = false;
+  mpu["i2c_addr"] = "0x68";
+  mpu["accel_g"] = nullptr;
+  mpu["gyro_dps"] = nullptr;
+
+  JsonObject mq6 = doc["mq6"].to<JsonObject>();
+  mq6["ok"] = false;
+  mq6["raw"] = nullptr;
+
+  JsonObject gps = doc["gps"].to<JsonObject>();
+  gps["ok"] = false;
+  gps["fix"] = "none";
+  gps["latitude"] = nullptr;
+  gps["longitude"] = nullptr;
+  gps["altitude_m"] = nullptr;
+  gps["satellites"] = nullptr;
+
+  JsonObject battery = doc["battery"].to<JsonObject>();
+  battery["ok"] = false;
+  battery["percent"] = nullptr;
+  battery["voltage_v"] = nullptr;
+
+  JsonObject fall = doc["fall"].to<JsonObject>();
+  fall["state"] = "idle";
+  fall["model"] = FALL_MODEL_ID;
+  fall["grace_remaining_ms"] = 0;
+
+  JsonObject ui = doc["local_ui"].to<JsonObject>();
+  ui["touchscreen"] = "not_installed";
+  ui["buzzer"] = "not_installed";
+
+  JsonObject signature = doc["signature"].to<JsonObject>();
+  signature["alg"] = "ECDSA-P256-SHA256";
+  signature["prefix_hex"] = nullptr;
+  signature["hex"] = nullptr;
+}
+
+static String networkConfigUrl() {
+  String url = TELEMETRY_URL;
+  const int scheme = url.indexOf("://");
+  const int slash = url.indexOf('/', scheme < 0 ? 0 : scheme + 3);
+  if (slash < 0) return url + "/api/network";
+  return url.substring(0, slash) + "/api/network";
+}
+
+static void loadRouter() {
+  loadWifiBook(g_book);
+  if (g_book.count == 0 && WIFI_SSID[0] != '\0' && strcmp(WIFI_SSID, "YOUR_WIFI_SSID") != 0) {
+    if (upsertWifi(WIFI_SSID, WIFI_PASSWORD, true)) loadWifiBook(g_book);
+    FASerial.printf("[node-b] router from config.h fallback: %s\n", WIFI_SSID);
+  }
+  if (g_book.count == 0) {
+    FASerial.println("[node-b] no router yet — enter it on the dashboard");
+    return;
+  }
+  copySlot(g_book.preferred);
+  rememberApplied(g_wifi.ssid, g_wifi.password);
+  FASerial.printf("[node-b] %u saved network(s); preferred %s\n", g_book.count, g_book.slots[g_book.preferred].ssid);
+  for (uint8_t i = 0; i < g_book.count; i++) {
+    if (i == g_book.preferred) continue;
+    FASerial.printf("[node-b] also saved %s\n", g_book.slots[i].ssid);
+  }
+}
+
+static void readRouterFromSerial() {
+  static char line[160];
+  static size_t used = 0;
+  while (takeSerialLine(FASerial, line, sizeof(line), used)) {
+    char ssid[33];
+    char password[64];
+    bool prefer = false;
+    if (!parseWifiCommand(line, prefer, ssid, sizeof(ssid), password, sizeof(password))) continue;
+    const int8_t existing = slotForSsid(ssid);
+    const bool unchanged = existing >= 0 && strcmp(g_book.slots[existing].password, password) == 0 &&
+                           (!prefer || g_book.preferred == static_cast<uint8_t>(existing));
+    if (!unchanged) {
+      if (!upsertWifi(ssid, password, prefer)) continue;
+      loadWifiBook(g_book);
+      if (!prefer) FASerial.printf("[node-b] remembered %s\n", ssid);
+    }
+    if (!prefer) continue;
+    const bool same = strcmp(ssid, g_appliedSsid) == 0 && strcmp(password, g_appliedPass) == 0;
+    rememberApplied(ssid, password);
+    if (WiFi.status() == WL_CONNECTED && WiFi.SSID() == ssid && same) {
+      g_phase = WifiPhase::Connected;
+      continue;
+    }
+    if (same && (g_phase == WifiPhase::Connecting || g_phase == WifiPhase::Scanning)) continue;
+    FASerial.printf("[node-b] router saved from USB: %s\n", ssid);
+    armPreferred(true);
+  }
+}
+
+static void pollDashboardRouter() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  static uint32_t lastMs = 0;
+  const uint32_t now = millis();
+  if (lastMs != 0 && now - lastMs < 20000) return;
+  lastMs = now;
+
+  HTTPClient http;
+  http.setTimeout(4000);
+  const String url = networkConfigUrl();
+  if (!http.begin(url)) return;
+  const int status = http.GET();
+  if (status != 200) {
+    http.end();
+    return;
+  }
+  const String body = http.getString();
+  http.end();
+
+  JsonDocument doc;
+  if (deserializeJson(doc, body)) return;
+
+  auto remember = [](JsonVariant value, bool prefer) {
+    if (!value.is<JsonObject>()) return;
+    const char *name = value["ssid"] | "";
+    const char *pass = value["password"] | "";
+    if (name[0] == '\0') return;
+    const int8_t slot = slotForSsid(name);
+    if (slot >= 0 && strcmp(g_book.slots[slot].password, pass) == 0) {
+      if (!prefer || g_book.preferred == static_cast<uint8_t>(slot)) return;
+    }
+    if (!upsertWifi(name, pass, prefer)) return;
+    loadWifiBook(g_book);
+  };
+  remember(doc["router"], false);
+  remember(doc["hotspot"], false);
+
+  const char *ssid = doc["ssid"] | "";
+  const char *password = doc["password"] | "";
+  if (ssid[0] == '\0') return;
+  if (strcmp(ssid, g_appliedSsid) == 0 && strcmp(password, g_appliedPass) == 0) return;
+  if (!upsertWifi(ssid, password, true)) return;
+  loadWifiBook(g_book);
+  rememberApplied(ssid, password);
+  FASerial.printf("[node-b] router updated from dashboard: %s\n", ssid);
+  armPreferred(true);
+}
+
+static bool postDocument(JsonDocument &doc) {
+  doc["router_ssid"] = g_wifi.ssid[0] ? g_wifi.ssid : nullptr;
+  String body;
+  serializeJson(doc, body);
+  // Primary path for this lab: USB serial → npm run bridge → localhost.
+  // Always print first so a bad TELEMETRY_URL cannot stall the ESP-NOW queue.
+  FASerial.println(body);
+
+  if (WiFi.status() != WL_CONNECTED && !CELLULAR_MODEM_INSTALLED) {
+    return true;
+  }
+  if (millis() < g_httpBackoffUntilMs) {
+    return true;
+  }
+
+  HTTPClient http;
+  // Keep this short. An 8s timeout per packet made motion look like "1 packet / minute".
+  http.setTimeout(1200);
+  if (!http.begin(TELEMETRY_URL)) {
+    FASerial.println("[node-b] HTTP begin failed; USB bridge still has the packet");
+    g_httpBackoffUntilMs = millis() + 30000;
+    return true;
+  }
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Firealert-Gateway", GATEWAY_ID);
+  const int status = http.POST(body);
+  http.end();
+  if (status >= 200 && status < 300) {
+    g_httpBackoffUntilMs = 0;
+    return true;
+  }
+  FASerial.printf("[node-b] POST %s -> HTTP %d (USB ok; pausing Wi-Fi POST 30s)\n", TELEMETRY_URL, status);
+  g_httpBackoffUntilMs = millis() + 30000;
+  return true;
+}
+
+static bool postV1(const QueuedPacket &item) {
+  if (item.len != sizeof(TelemetryPacketV1)) {
+    return false;
+  }
+  TelemetryPacketV1 packet = {};
+  memcpy(&packet, item.data, sizeof(packet));
+
+  JsonDocument doc;
+  char srcMac[18];
+  formatMac(item.srcMac, srcMac, sizeof(srcMac));
+  doc["protocol_version"] = packet.version;
+  doc["source"] = "node-a";
+  doc["wearer_id"] = "unassigned";
+  doc["gateway"] = GATEWAY_ID;
+  doc["source_mac"] = srcMac;
+  doc["rssi_dbm"] = item.rssi;
+  doc["sequence"] = packet.sequence;
+  doc["timestamp_ms"] = packet.timestamp_ms;
+  addUplink(doc, 0);
+
+  JsonObject scd40 = doc["scd40"].to<JsonObject>();
+  scd40["ok"] = (packet.flags & FLAG_SCD40_OK) != 0;
+  scd40["i2c_addr"] = "0x62";
+  appendNullableFloat(scd40, "co2_ppm", packet.co2_ppm);
+  appendNullableFloat(scd40, "temperature_c", packet.temperature_c);
+  appendNullableFloat(scd40, "humidity_rh", packet.humidity_rh);
+
+  JsonObject bme = doc["bme688"].to<JsonObject>();
+  bme["ok"] = (packet.flags & FLAG_BME688_OK) != 0;
+  bme["i2c_addr"] = "0x77";
+  bme["temperature_c"] = nullptr;
+  bme["humidity_rh"] = nullptr;
+  bme["pressure_hpa"] = nullptr;
+  appendNullableFloat(bme, "gas_resistance_ohm", packet.gas_resistance_ohm);
+  addEmptySensors(doc);
+  return postDocument(doc);
+}
+
+static bool postV2(const QueuedPacket &item) {
+  if (item.len != sizeof(TelemetryPacket)) {
+    FASerial.printf("[node-b] v2 length %u, expected %u\n", item.len,
+                  static_cast<unsigned>(sizeof(TelemetryPacket)));
+    return false;
+  }
+  TelemetryPacket packet = {};
+  memcpy(&packet, item.data, sizeof(packet));
+
+  char wearer[sizeof(packet.wearer_id) + 1] = {};
+  memcpy(wearer, packet.wearer_id, sizeof(packet.wearer_id));
+
+  JsonDocument doc;
+  char srcMac[18];
+  formatMac(item.srcMac, srcMac, sizeof(srcMac));
+  doc["protocol_version"] = packet.version;
+  doc["source"] = "node-a";
+  doc["wearer_id"] = wearer[0] ? wearer : "unassigned";
+  doc["gateway"] = GATEWAY_ID;
+  doc["source_mac"] = srcMac;
+  doc["rssi_dbm"] = item.rssi;
+  doc["sequence"] = packet.sequence;
+  doc["timestamp_ms"] = packet.timestamp_ms;
+  addUplink(doc, packet.flags);
+
+  JsonObject scd40 = doc["scd40"].to<JsonObject>();
+  const bool scdOk = (packet.flags & FLAG_SCD40_OK) != 0;
+  scd40["ok"] = scdOk;
+  scd40["i2c_addr"] = "0x62";
+  appendNullableFloat(scd40, "co2_ppm", packet.co2_ppm);
+  appendNullableFloat(scd40, "temperature_c", packet.scd40_temperature_c);
+  appendNullableFloat(scd40, "humidity_rh", packet.scd40_humidity_rh);
+
+  JsonObject bme = doc["bme688"].to<JsonObject>();
+  bme["ok"] = (packet.flags & FLAG_BME688_OK) != 0;
+  bme["i2c_addr"] = "0x77";
+  appendNullableFloat(bme, "temperature_c", packet.bme_temperature_c);
+  appendNullableFloat(bme, "humidity_rh", packet.bme_humidity_rh);
+  appendNullableFloat(bme, "pressure_hpa", packet.pressure_hpa);
+  appendNullableFloat(bme, "gas_resistance_ohm", packet.gas_resistance_ohm);
+
+  JsonObject max30102 = doc["max30102"].to<JsonObject>();
+  max30102["ok"] = (packet.flags & FLAG_MAX30102_OK) != 0;
+  max30102["i2c_addr"] = "0x57";
+  appendNullableFloat(max30102, "heart_rate_bpm", packet.heart_rate_bpm);
+  appendNullableFloat(max30102, "spo2_percent", packet.spo2_percent);
+
+  JsonObject mpu = doc["mpu6050"].to<JsonObject>();
+  const bool mpuOk = (packet.flags & FLAG_MPU6050_OK) != 0;
+  mpu["ok"] = mpuOk;
+  mpu["i2c_addr"] = "0x68";
+  if (!mpuOk) {
+    mpu["accel_g"] = nullptr;
+    mpu["gyro_dps"] = nullptr;
+  } else {
+    JsonObject accel = mpu["accel_g"].to<JsonObject>();
+    appendNullableFloat(accel, "x", packet.accel_x);
+    appendNullableFloat(accel, "y", packet.accel_y);
+    appendNullableFloat(accel, "z", packet.accel_z);
+    JsonObject gyro = mpu["gyro_dps"].to<JsonObject>();
+    appendNullableFloat(gyro, "x", packet.gyro_x);
+    appendNullableFloat(gyro, "y", packet.gyro_y);
+    appendNullableFloat(gyro, "z", packet.gyro_z);
+  }
+
+  JsonObject mq6 = doc["mq6"].to<JsonObject>();
+  const bool mqOk = (packet.flags & FLAG_MQ6_OK) != 0 && packet.mq6_raw != MQ6_RAW_ABSENT;
+  mq6["ok"] = mqOk;
+  if (mqOk) {
+    mq6["raw"] = packet.mq6_raw;
+  } else {
+    mq6["raw"] = nullptr;
+  }
+
+  JsonObject gps = doc["gps"].to<JsonObject>();
+  const bool fix = (packet.flags & FLAG_GPS_FIX) != 0;
+  const bool lastKnown = !fix && (packet.flags & FLAG_GPS_LAST_KNOWN) != 0;
+  gps["ok"] = fix;
+  gps["fix"] = fix ? "fix" : (lastKnown ? "last_known" : "none");
+  if ((fix || lastKnown) && packet.latitude_e7 != GPS_COORD_ABSENT &&
+      packet.longitude_e7 != GPS_COORD_ABSENT) {
+    gps["latitude"] = static_cast<double>(packet.latitude_e7) / 1e7;
+    gps["longitude"] = static_cast<double>(packet.longitude_e7) / 1e7;
+  } else {
+    gps["latitude"] = nullptr;
+    gps["longitude"] = nullptr;
+  }
+  if ((fix || lastKnown) && packet.altitude_dm != GPS_ALT_ABSENT) {
+    gps["altitude_m"] = static_cast<float>(packet.altitude_dm) / 10.0f;
+  } else {
+    gps["altitude_m"] = nullptr;
+  }
+  if (packet.gps_satellites == GPS_SATELLITES_ABSENT) {
+    gps["satellites"] = nullptr;
+  } else {
+    gps["satellites"] = static_cast<int>(packet.gps_satellites);
+  }
+
+  JsonObject battery = doc["battery"].to<JsonObject>();
+  const bool batteryOk = (packet.flags & FLAG_BATTERY_OK) != 0;
+  battery["ok"] = batteryOk;
+  battery["voltage_v"] = nullptr;
+  if (batteryOk && packet.battery_percent != BATTERY_PERCENT_ABSENT) {
+    battery["percent"] = packet.battery_percent;
+  } else {
+    battery["percent"] = nullptr;
+  }
+
+  JsonObject fall = doc["fall"].to<JsonObject>();
+  fall["state"] = fallName(packet.fall_state);
+  fall["model"] = FALL_MODEL_ID;
+  fall["grace_remaining_ms"] = packet.grace_remaining_ms;
+
+  char activityLabel[sizeof(packet.activity_label) + 1] = {};
+  memcpy(activityLabel, packet.activity_label, sizeof(packet.activity_label));
+  JsonObject activity = doc["activity"].to<JsonObject>();
+  activity["label"] = activityLabel[0] ? activityLabel : "waiting";
+  activity["score"] = static_cast<float>(packet.activity_score) / 100.0f;
+
+  const bool wantBuzzer = (packet.alert_outputs & ALERT_BUZZER) != 0;
+  const bool wantScreen = (packet.alert_outputs & ALERT_SCREEN) != 0;
+  JsonObject ui = doc["local_ui"].to<JsonObject>();
+  ui["touchscreen"] = localOutput(wantScreen, TOUCHSCREEN_INSTALLED);
+  ui["buzzer"] = localOutput(wantBuzzer, BUZZER_INSTALLED);
+
+  JsonObject signature = doc["signature"].to<JsonObject>();
+  signature["alg"] = "ECDSA-P256-SHA256";
+  appendHex(signature, "prefix_hex", packet.signature_len > 0 ? item.data : nullptr,
+            packet.signature_len > 0 ? offsetof(TelemetryPacket, signature_len) : 0);
+  appendHex(signature, "hex", packet.signature_len > 0 ? packet.signature : nullptr, packet.signature_len);
+
+  return postDocument(doc);
+}
+
+void setup() {
+  firealertSerialBegin(115200);
+  delay(200);
+  FASerial.println();
+  FASerial.println("[node-b] FIREALERT field gateway boot");
+  WiFi.persistent(false);
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+  WiFi.setAutoReconnect(false);
+  WiFi.disconnect(false, true);
+  delay(100);
+  FASerial.printf("[node-b] v2 packet %u bytes; uplink %s\n", static_cast<unsigned>(sizeof(TelemetryPacket)),
+                CELLULAR_MODEM_INSTALLED ? "cellular" : "wifi stand-in");
+  if (!initEspNow()) {
+    FASerial.println("[node-b] ESP-NOW init failed — halt");
+    while (true) {
+      delay(1000);
+    }
+  }
+  loadRouter();
+  if (g_book.count == 0) {
+    setDetail("no_saved_network");
+    setTrying("-");
+  } else {
+    armPreferred(false);
+  }
+}
+
+void loop() {
+  readRouterFromSerial();
+  serviceWifi();
+  pollDashboardRouter();
+
+  static uint32_t lastBeatMs = 0;
+  if (millis() - lastBeatMs >= 2000) {
+    lastBeatMs = millis();
+    const bool up = WiFi.status() == WL_CONNECTED && g_phase != WifiPhase::Connecting;
+    String ssid = "-";
+    if (up) {
+      ssid = WiFi.SSID();
+      if (ssid.length() == 0) ssid = g_joined[0] ? g_joined : g_wifi.ssid;
+    }
+    FASerial.printf(
+        "[node-b] heartbeat wifi=%s ip=%s ch=%u mac=%s cellular=%s ssid=%s phase=%s trying=%s detail=%s\n",
+        up ? "up" : "down", up ? WiFi.localIP().toString().c_str() : "0.0.0.0",
+        up ? WiFi.channel() : WIFI_CHANNEL, WiFi.macAddress().c_str(),
+        CELLULAR_MODEM_INSTALLED ? "ready" : "not-installed", ssid.c_str(), phaseName(g_phase), g_trying,
+        g_detail);
+  }
+
+  QueuedPacket item;
+  if (!queuePop(item)) {
+    delay(10);
+    return;
+  }
+
+  const uint8_t version = item.data[0];
+  bool posted = false;
+  if (version == TELEMETRY_VERSION) {
+    posted = postV2(item);
+  } else if (version == TELEMETRY_VERSION_V1) {
+    posted = postV1(item);
+  } else {
+    FASerial.printf("[node-b] drop packet version %u\n", version);
+    return;
+  }
+  if (!posted) {
+    FASerial.println("[node-b] packet build failed; dropped");
+  }
+}
