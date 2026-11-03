@@ -1,10 +1,12 @@
 import { SignJWT } from "jose/jwt/sign";
 import { jwtVerify } from "jose/jwt/verify";
 import { AUTH_COOKIE_NAME, SESSION_MAX_AGE_SEC } from "./constants";
+import { parseAccountRole, type AccountRole } from "./roles";
 
 export type SessionPayload = {
   sub: string;
   username: string;
+  role: AccountRole;
 };
 
 function sessionSecret(): Uint8Array | null {
@@ -16,7 +18,7 @@ function sessionSecret(): Uint8Array | null {
 export async function createSessionToken(payload: SessionPayload): Promise<string> {
   const secret = sessionSecret();
   if (!secret) throw new Error("SESSION_SECRET must be at least 32 characters");
-  return new SignJWT({ username: payload.username })
+  return new SignJWT({ username: payload.username, role: payload.role })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(payload.sub)
     .setIssuedAt()
@@ -32,7 +34,7 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
     const sub = typeof payload.sub === "string" ? payload.sub : "";
     const username = typeof payload.username === "string" ? payload.username : "";
     if (!sub || !username) return null;
-    return { sub, username };
+    return { sub, username, role: parseAccountRole(payload.role) };
   } catch {
     return null;
   }

@@ -1,7 +1,15 @@
 import { desc, eq } from "drizzle-orm";
 import { databaseUrl, getDb } from "./db/client";
 import { incidents as incidentsTable, type IncidentRow } from "./db/schema";
-import { addIncident, listIncidents, replaceIncidents, setIncidentStatus, type Incident, type IncidentDraft } from "./incidents";
+import {
+  acknowledgeIncidentMemory,
+  addIncident,
+  listIncidents,
+  replaceIncidents,
+  setIncidentStatus,
+  type Incident,
+  type IncidentDraft,
+} from "./incidents";
 import { boardBackend, readRedisBoard, readSharedBoard, writeSharedIncidents } from "./shared-board";
 
 function rowToIncident(row: IncidentRow): Incident {
@@ -20,6 +28,9 @@ function rowToIncident(row: IncidentRow): Incident {
     closed_at: row.closedAt,
     caller_name: row.callerName,
     caller_contact: row.callerContact,
+    acknowledged_at: row.acknowledgedAt,
+    acknowledged_by_user_id: row.acknowledgedByUserId,
+    acknowledged_by_username: row.acknowledgedByUsername,
   };
 }
 
@@ -100,6 +111,46 @@ export async function createIncident(
   const current = boardBackend() === "memory" ? listIncidents() : await loadIncidentList();
   await rememberShared([incident, ...current.filter((item) => item.id !== incident.id)]);
   return incident;
+}
+
+export async function acknowledgeIncident(
+  id: string,
+  actor: { id: string; username: string },
+): Promise<Incident | null> {
+  if (usePostgres()) {
+    const existing = await getDb().select().from(incidentsTable).where(eq(incidentsTable.id, id));
+    const row = existing[0];
+    if (!row || row.status === "closed") return null;
+    if (row.acknowledgedAt) {
+      const incident = rowToIncident(row);
+      const current = await loadIncidentList();
+      await rememberShared(current.map((item) => (item.id === id ? incident : item)));
+      return incident;
+    }
+    const now = new Date().toISOString();
+    const rows = await getDb()
+      .update(incidentsTable)
+      .set({
+        acknowledgedAt: now,
+        acknowledgedByUserId: actor.id,
+        acknowledgedByUsername: actor.username,
+      })
+      .where(eq(incidentsTable.id, id))
+      .returning();
+    if (!rows[0]) return null;
+    const incident = rowToIncident(rows[0]);
+    const current = await loadIncidentList();
+    await rememberShared(current.map((item) => (item.id === id ? incident : item)));
+    return incident;
+  }
+
+  const current = boardBackend() === "memory" ? listIncidents() : await loadIncidentList();
+  if (!current.some((item) => item.id === id)) return null;
+  const incident = acknowledgeIncidentMemory(id, actor);
+  if (!incident) return null;
+  const next = listIncidents();
+  await rememberShared(next);
+  return next.find((item) => item.id === id) ?? null;
 }
 
 export async function changeIncidentStatus(id: string, status: "open" | "closed"): Promise<Incident | null> {

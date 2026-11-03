@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="1120" viewBox="0 0 1680 1120" role="img" aria-labelledby="title desc">
+  <title id="title">FIREALERT entity-relationship diagram</title>
+  <desc id="desc">Postgres tables for users, incidents, crew, assignments, local nodes, and telemetry packets at New Makati Central Fire Station.</desc>
+  <style>
+    text { font-family: "Segoe UI", system-ui, sans-serif; }
+    .title { font-size: 22px; font-weight: 700; fill: #152033; }
+    .sub { font-size: 13px; fill: #5c6770; }
+    .entity-title { font-size: 14px; font-weight: 700; fill: #f7f4ee; }
+    .col { font-size: 12px; fill: #1c2430; }
+    .mark { font-size: 10px; font-weight: 700; }
+    .pk { fill: #8a6230; }
+    .fk { fill: #1f4e79; }
+    .rel { font-size: 11px; fill: #3d4a5c; }
+    .note { font-size: 12px; fill: #3d4a5c; }
+  </style>
+  <rect width="1680" height="1120" fill="#f6f3ec"/>
+  <text class="title" x="40" y="42">FIREALERT entity-relationship diagram</text>
+  <text class="sub" x="40" y="64">New Makati Central Fire Station · Postgres on Neon · from web/lib/db/schema.ts</text>
+
+  <!-- relationships drawn under the cards -->
+  <g fill="none" stroke="#5c6b7a" stroke-width="1.4">
+    <path d="M340 168 H390 V250 H430"/>
+    <path d="M340 210 H390 V470 H430"/>
+    <path d="M820 250 H900 V400 H1360"/>
+    <path d="M1570 300 V340"/>
+    <path d="M625 520 V560"/>
+    <path d="M180 620 V540 H430"/>
+    <path d="M360 676 H450"/>
+  </g>
+  <g class="rel">
+    <text x="348" y="158">1</text>
+    <text x="404" y="242">0..*</text>
+    <text x="348" y="228">1</text>
+    <text x="404" y="462">0..*</text>
+    <text x="828" y="242">1</text>
+    <text x="1310" y="392">0..*</text>
+    <text x="1576" y="328">1</text>
+    <text x="1576" y="354">0..*</text>
+    <text x="632" y="548">1</text>
+    <text x="600" y="576">0..*</text>
+    <text x="188" y="560">1</text>
+    <text x="390" y="532">0..*</text>
+    <text x="368" y="668">1</text>
+    <text x="410" y="668">0..*</text>
+  </g>
+  <g class="rel">
+    <text x="396" y="188">creates · set null</text>
+    <text x="396" y="420">acknowledges · set null</text>
+    <text x="980" y="388">assigned · cascade</text>
+    <text x="1456" y="332">crew · cascade</text>
+    <text x="200" y="532">site node · set null</text>
+    <text x="640" y="548">packets · set null</text>
+    <text x="368" y="656">node · set null</text>
+  </g>
+
+  <!-- users -->
+  <g>
+    <rect x="40" y="90" width="300" height="176" rx="8" fill="#ffffff" stroke="#152033"/>
+    <rect x="40" y="90" width="300" height="32" rx="8" fill="#152033"/>
+    <rect x="40" y="110" width="300" height="12" fill="#152033"/>
+    <text class="entity-title" x="56" y="111">users</text>
+    <text class="col" x="56" y="146"><tspan class="mark pk">PK</tspan>  id  uuid</text>
+    <text class="col" x="56" y="168"><tspan class="mark pk">UK</tspan>  username  text  not null</text>
+    <text class="col" x="56" y="190">password_hash  text  not null</text>
+    <text class="col" x="56" y="212">role  text  not null</text>
+    <text class="col" x="56" y="234">display_name  text</text>
+    <text class="col" x="56" y="256">created_at  timestamptz  not null</text>
+  </g>
+
+  <!-- incidents -->
+  <g>
+    <rect x="430" y="90" width="390" height="430" rx="8" fill="#ffffff" stroke="#152033"/>
+    <rect x="430" y="90" width="390" height="32" rx="8" fill="#152033"/>
+    <rect x="430" y="110" width="390" height="12" fill="#152033"/>
+    <text class="entity-title" x="446" y="111">incidents</text>
+    <text class="col" x="446" y="146"><tspan class="mark pk">PK</tspan>  id  text</text>
+    <text class="col" x="446" y="168">title  text  not null</text>
+    <text class="col" x="446" y="190">address  text  not null</text>
+    <text class="col" x="446" y="212">notes  text  not null</text>
+    <text class="col" x="446" y="234">latitude  double</text>
+    <text class="col" x="446" y="256">longitude  double</text>
+    <text class="col" x="446" y="278">status  text  not null</text>
+    <text class="col" x="446" y="300"><tspan class="mark fk">FK</tspan>  created_by_user_id  uuid</text>
+    <text class="col" x="446" y="322">created_by_username  text</text>
+    <text class="col" x="446" y="344">reported_at  timestamptz  not null</text>
+    <text class="col" x="446" y="366">created_at  timestamptz  not null</text>
+    <text class="col" x="446" y="388">closed_at  timestamptz</text>
+    <text class="col" x="446" y="410">caller_name  text</text>
+    <text class="col" x="446" y="432">caller_contact  text</text>
+    <text class="col" x="446" y="454">acknowledged_at  timestamptz</text>
+    <text class="col" x="446" y="476"><tspan class="mark fk">FK</tspan>  acknowledged_by_user_id  uuid</text>
+    <text class="col" x="446" y="498">acknowledged_by_username  text</text>
+  </g>
+
+  <!-- crew_members -->
+  <g>
+    <rect x="1360" y="90" width="280" height="210" rx="8" fill="#ffffff" stroke="#152033"/>
+    <rect x="1360" y="90" width="280" height="32" rx="8" fill="#152033"/>
+    <rect x="1360" y="110" width="280" height="12" fill="#152033"/>
+    <text class="entity-title" x="1376" y="111">crew_members</text>
+    <text class="col" x="1376" y="146"><tspan class="mark pk">PK</tspan>  wearer_id  text</text>
+    <text class="col" x="1376" y="168">display_name  text  not null</text>
+    <text class="col" x="1376" y="190">callsign  text  not null</text>
+    <text class="col" x="1376" y="212">unit  text  not null</text>
+    <text class="col" x="1376" y="234">role  text  not null</text>
+    <text class="col" x="1376" y="256">active  boolean  not null</text>
+    <text class="col" x="1376" y="278">created_at  timestamptz  not null</text>
+  </g>
+
+  <!-- incident_assignments -->
+  <g>
+    <rect x="1360" y="340" width="280" height="150" rx="8" fill="#ffffff" stroke="#152033"/>
+    <rect x="1360" y="340" width="280" height="32" rx="8" fill="#152033"/>
+    <rect x="1360" y="360" width="280" height="12" fill="#152033"/>
+    <text class="entity-title" x="1376" y="361">incident_assignments</text>
+    <text class="col" x="1376" y="396"><tspan class="mark pk">PK</tspan> <tspan class="mark fk">FK</tspan>  incident_id  text</text>
+    <text class="col" x="1376" y="418"><tspan class="mark pk">PK</tspan> <tspan class="mark fk">FK</tspan>  wearer_id  text</text>
+    <text class="col" x="1376" y="440">assigned_at  timestamptz  not null</text>
+    <text class="col" x="1376" y="468">composite primary key</text>
+  </g>
+
+  <!-- local_nodes -->
+  <g>
+    <rect x="40" y="620" width="320" height="210" rx="8" fill="#ffffff" stroke="#152033"/>
+    <rect x="40" y="620" width="320" height="32" rx="8" fill="#152033"/>
+    <rect x="40" y="640" width="320" height="12" fill="#152033"/>
+    <text class="entity-title" x="56" y="641">local_nodes</text>
+    <text class="col" x="56" y="676"><tspan class="mark pk">PK</tspan>  id  text</text>
+    <text class="col" x="56" y="698">label  text  not null</text>
+    <text class="col" x="56" y="720">site_name  text</text>
+    <text class="col" x="56" y="742"><tspan class="mark fk">FK</tspan>  incident_id  text</text>
+    <text class="col" x="56" y="764">last_seen_at  timestamptz</text>
+    <text class="col" x="56" y="786">internet_up  boolean  not null</text>
+    <text class="col" x="56" y="808">created_at  timestamptz  not null</text>
+  </g>
+
+  <!-- telemetry_packets -->
+  <g>
+    <rect x="450" y="560" width="400" height="350" rx="8" fill="#ffffff" stroke="#152033"/>
+    <rect x="450" y="560" width="400" height="32" rx="8" fill="#152033"/>
+    <rect x="450" y="580" width="400" height="12" fill="#152033"/>
+    <text class="entity-title" x="466" y="581">telemetry_packets</text>
+    <text class="col" x="466" y="616"><tspan class="mark pk">PK</tspan>  id  uuid</text>
+    <text class="col" x="466" y="638"><tspan class="mark fk">FK</tspan>  incident_id  text</text>
+    <text class="col" x="466" y="660">wearer_id  text  not null</text>
+    <text class="col" x="466" y="682"><tspan class="mark fk">FK</tspan>  node_id  text</text>
+    <text class="col" x="466" y="704">received_at  timestamptz  not null</text>
+    <text class="col" x="466" y="726">sequence  integer</text>
+    <text class="col" x="466" y="748">gateway  text</text>
+    <text class="col" x="466" y="770">fall_state  text</text>
+    <text class="col" x="466" y="792">signature_status  text</text>
+    <text class="col" x="466" y="814">payload  jsonb  not null</text>
+    <text class="col" x="466" y="836">sync_status  text  not null</text>
+    <text class="col" x="466" y="858">synced_at  timestamptz</text>
+    <text class="col" x="466" y="880">created_at  timestamptz  not null</text>
+  </g>
+
+  <!-- notes -->
+  <g>
+    <rect x="900" y="940" width="740" height="140" rx="8" fill="#fff" stroke="#d9d3c7"/>
+    <text class="title" x="920" y="968" style="font-size:14px">Notes</text>
+    <text class="note" x="920" y="994">role on users: commel, responder, or admin. Default responder.</text>
+    <text class="note" x="920" y="1016">status on incidents: open or closed. Acknowledged columns are set when a responder takes the call.</text>
+    <text class="note" x="920" y="1038">role on crew_members: firefighter, officer, or medic. sync_status on packets: local, pending, or cloud.</text>
+    <text class="note" x="920" y="1060">telemetry_packets.wearer_id is stored as text and is not a foreign key to crew_members.</text>
+  </g>
+  <text class="sub" x="40" y="1088">1 = exactly one.  0..* = zero or many.  PK primary key.  FK foreign key.  UK unique.</text>
+</svg>

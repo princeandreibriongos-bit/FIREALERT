@@ -3,6 +3,7 @@ import { AUTH_COOKIE_NAME } from "@/lib/auth/constants";
 import { databaseUrl } from "@/lib/db/client";
 import { parseLoginInput } from "@/lib/auth/login-input";
 import { authenticateUser } from "@/lib/auth/users";
+import { parseAccountRole } from "@/lib/auth/roles";
 import { createSessionToken, sessionCookieOptions } from "@/lib/auth/session";
 
 export const dynamic = "force-dynamic";
@@ -38,13 +39,17 @@ export async function POST(request: NextRequest) {
 
   let token: string;
   try {
-    token = await createSessionToken({ sub: user.id, username: user.username });
+    token = await createSessionToken({
+      sub: user.id,
+      username: user.username,
+      role: parseAccountRole(user.role),
+    });
   } catch (error) {
     console.error("[FIREALERT] login", error);
     return NextResponse.json({ ok: false, error: "SESSION_SECRET is not configured on this server" }, { status: 503 });
   }
 
-  const response = NextResponse.json({ ok: true, username: user.username });
+  const response = NextResponse.json({ ok: true, username: user.username, role: parseAccountRole(user.role) });
   response.cookies.set(AUTH_COOKIE_NAME, token, sessionCookieOptions());
   return response;
 }

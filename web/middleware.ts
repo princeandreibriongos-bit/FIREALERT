@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AUTH_COOKIE_NAME } from "@/lib/auth/constants";
 import { isPublicRequest, safeNextPath } from "@/lib/auth/public-routes";
+import { homeForRole, sessionMayOpen } from "@/lib/auth/roles";
 import { verifySessionToken } from "@/lib/auth/session";
 
 export async function middleware(request: NextRequest) {
@@ -14,20 +15,30 @@ export async function middleware(request: NextRequest) {
   const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
   const session = token ? await verifySessionToken(token) : null;
 
-  if (session) {
+  if (!session) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    }
+    const loginUrl = request.nextUrl.clone();
+    loginUrl.pathname = "/";
+    loginUrl.search = "";
+    loginUrl.searchParams.set("signin", "1");
+    loginUrl.searchParams.set("next", safeNextPath(pathname + request.nextUrl.search));
+    return NextResponse.redirect(loginUrl);
+  }
+
+  if (sessionMayOpen(session.role, pathname, method)) {
     return NextResponse.next();
   }
 
   if (pathname.startsWith("/api/")) {
-    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ ok: false, error: "This account cannot open that" }, { status: 403 });
   }
 
-  const loginUrl = request.nextUrl.clone();
-  loginUrl.pathname = "/";
-  loginUrl.search = "";
-  loginUrl.searchParams.set("signin", "1");
-  loginUrl.searchParams.set("next", safeNextPath(pathname + request.nextUrl.search));
-  return NextResponse.redirect(loginUrl);
+  const desk = request.nextUrl.clone();
+  desk.pathname = homeForRole(session.role);
+  desk.search = "";
+  return NextResponse.redirect(desk);
 }
 
 export const config = {

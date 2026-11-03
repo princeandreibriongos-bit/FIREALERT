@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { Incident } from "@/lib/incidents";
 import { useBoard } from "./board-provider";
+import { IncidentMap } from "./incident-map";
 
 function localDateTimeValue(date = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -86,7 +87,8 @@ export function IncidentCreateFields({
   }
 
   return (
-    <form className="form" autoComplete="off" noValidate onSubmit={submit}>
+    <div className="incident-create-layout">
+      <form className="form" autoComplete="off" noValidate onSubmit={submit}>
       <div className="field">
         <label htmlFor="incident-title">Title</label>
         <input
@@ -157,6 +159,8 @@ export function IncidentCreateFields({
           {saving ? "Saving…" : "Save incident"}
         </button>
       </div>
-    </form>
+      </form>
+      <IncidentMap address={address} />
+    </div>
   );
 }

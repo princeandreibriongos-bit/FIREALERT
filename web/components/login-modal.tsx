@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { type AccountRole } from "@/lib/auth/roles";
 import { STATION } from "@/lib/station";
 import { StationLogo } from "./station-logo";
 
@@ -13,7 +14,7 @@ export function LoginModal({
   open: boolean;
   configured: boolean;
   onClose: () => void;
-  onSignedIn: (username: string) => void;
+  onSignedIn: (username: string, role: AccountRole) => void;
 }) {
   const titleId = useId();
   const firstField = useRef<HTMLInputElement>(null);
@@ -48,12 +49,12 @@ export function LoginModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
-      const json = (await response.json()) as { ok?: boolean; error?: string; username?: string };
+      const json = (await response.json()) as { ok?: boolean; error?: string; username?: string; role?: AccountRole };
       if (!response.ok || !json.ok || !json.username) {
         setError(json.error ?? "Sign-in failed");
         return;
       }
-      onSignedIn(json.username);
+      onSignedIn(json.username, json.role === "commel" || json.role === "responder" ? json.role : "admin");
       setPassword("");
       onClose();
     } catch {

@@ -20,7 +20,7 @@ export function IncidentCreateModal({
     <Modal
       open={open}
       title="New incident"
-      description="Leave coordinates empty and the board will geocode the address. A failed lookup asks you to enter a map point."
+      description="New Makati Central Fire Station stays pinned. The incident pin follows the address you type. Leave coordinates empty and the board looks up the point when you save."
       onClose={onClose}
       wide
     >

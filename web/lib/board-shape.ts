@@ -88,6 +88,9 @@ function parseIncidents(value: unknown): Incident[] {
       closed_at: typeof record.closed_at === "string" ? record.closed_at : null,
       caller_name: typeof record.caller_name === "string" ? record.caller_name : null,
       caller_contact: typeof record.caller_contact === "string" ? record.caller_contact : null,
+      acknowledged_at: typeof record.acknowledged_at === "string" ? record.acknowledged_at : null,
+      acknowledged_by_user_id: typeof record.acknowledged_by_user_id === "string" ? record.acknowledged_by_user_id : null,
+      acknowledged_by_username: typeof record.acknowledged_by_username === "string" ? record.acknowledged_by_username : null,
     });
   }
   return incidents;

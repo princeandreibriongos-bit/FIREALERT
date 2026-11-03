@@ -10,13 +10,13 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-/** Station operators who take civilian calls and monitor the board. */
+/** Station operators. Commel takes civilian calls. Local responders monitor the site. */
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   username: text("username").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
-  /** dispatcher | admin | viewer */
-  role: text("role").notNull().default("dispatcher"),
+  /** commel | responder | admin */
+  role: text("role").notNull().default("responder"),
   displayName: text("display_name"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 });
@@ -42,6 +42,10 @@ export const incidents = pgTable("incidents", {
   closedAt: timestamp("closed_at", { withTimezone: true, mode: "string" }),
   callerName: text("caller_name"),
   callerContact: text("caller_contact"),
+  /** Set when a local responder accepts the call. */
+  acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true, mode: "string" }),
+  acknowledgedByUserId: uuid("acknowledged_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  acknowledgedByUsername: text("acknowledged_by_username"),
 });
 
 /** On-site wearable roster (sample crew for now). */

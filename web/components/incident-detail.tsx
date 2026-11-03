@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { formatDistance, formatDuration, fmt, manilaTime } from "@/lib/format";
+import { incidentPhase } from "@/lib/incidents";
 import type { RouteOption } from "@/lib/routing";
 import { STATION } from "@/lib/station";
 import { useBoard } from "./board-provider";
+import { useAccount } from "./use-account";
 import { Badge, EmptyState } from "./ui";
 
 function RouteSketch({ coordinates }: { coordinates: [number, number][] }) {
@@ -38,6 +40,8 @@ function RouteSketch({ coordinates }: { coordinates: [number, number][] }) {
 
 export function IncidentDetail({ incidentId }: { incidentId: string }) {
   const { incidents, incidentsReady, refreshIncidents } = useBoard();
+  const { role } = useAccount();
+  const canRespond = role === "responder" || role === "admin";
   const incident = incidents.find((item) => item.id === incidentId) ?? null;
   const [routes, setRoutes] = useState<RouteOption[]>([]);
   const [routeNote, setRouteNote] = useState<string | null>(null);
@@ -94,15 +98,21 @@ export function IncidentDetail({ incidentId }: { incidentId: string }) {
     return () => controller.abort();
   }, [incident?.id, incident?.latitude, incident?.longitude]);
 
-  async function setStatus(status: "open" | "closed") {
+  async function act(action: "acknowledge" | "close" | "reopen") {
     if (!incident) return;
     setStatusBusy(true);
+    setRouteError(null);
     try {
-      await fetch(`/api/incidents/${incident.id}`, {
+      const response = await fetch(`/api/incidents/${incident.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ action }),
       });
+      const json = (await response.json()) as { ok?: boolean; error?: string };
+      if (!response.ok || !json.ok) {
+        setRouteError(json.error ?? "Could not update the incident");
+        return;
+      }
       await refreshIncidents();
     } finally {
       setStatusBusy(false);
@@ -137,7 +147,9 @@ export function IncidentDetail({ incidentId }: { incidentId: string }) {
                 {incident.title}
               </h1>
             </div>
-            <Badge tone={incident.status === "open" ? "brand" : "wait"}>{incident.status}</Badge>
+            <Badge tone={incidentPhase(incident) === "responding" ? "live" : incidentPhase(incident) === "reported" ? "brand" : "wait"}>
+              {incidentPhase(incident)}
+            </Badge>
           </div>
           <p className="fine" style={{ marginTop: 0 }}>
             {incident.address}
@@ -173,15 +185,27 @@ export function IncidentDetail({ incidentId }: { incidentId: string }) {
             </div>
           </div>
           <div className="row-actions" style={{ marginTop: 16 }}>
-            {incident.status === "open" ? (
-              <button type="button" className="btn btn-danger" onClick={() => void setStatus("closed")} disabled={statusBusy}>
-                Close incident
+            {canRespond && incidentPhase(incident) === "reported" ? (
+              <button type="button" className="btn btn-primary" onClick={() => void act("acknowledge")} disabled={statusBusy}>
+                {statusBusy ? "Saving…" : "Respond"}
               </button>
-            ) : (
-              <button type="button" className="btn btn-primary" onClick={() => void setStatus("open")} disabled={statusBusy}>
-                Reopen incident
+            ) : null}
+            {canRespond && incidentPhase(incident) === "responding" ? (
+              <button type="button" className="btn btn-danger" onClick={() => void act("close")} disabled={statusBusy}>
+                {statusBusy ? "Saving…" : "Close incident"}
               </button>
-            )}
+            ) : null}
+            {canRespond && incidentPhase(incident) === "closed" ? (
+              <button type="button" className="btn btn-primary" onClick={() => void act("reopen")} disabled={statusBusy}>
+                {statusBusy ? "Saving…" : "Reopen incident"}
+              </button>
+            ) : null}
+            {!canRespond && incidentPhase(incident) === "reported" ? <p className="fine">Waiting for a local responder to acknowledge this call.</p> : null}
+            {!canRespond && incidentPhase(incident) === "responding" ? (
+              <p className="fine">
+                Acknowledged{incident.acknowledged_by_username ? ` by ${incident.acknowledged_by_username}` : ""}. The responder closes it when the scene is cleared.
+              </p>
+            ) : null}
           </div>
         </section>
 

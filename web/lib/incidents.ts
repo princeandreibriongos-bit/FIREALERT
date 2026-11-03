@@ -13,7 +13,18 @@ export type Incident = {
   closed_at: string | null;
   caller_name: string | null;
   caller_contact: string | null;
+  acknowledged_at: string | null;
+  acknowledged_by_user_id: string | null;
+  acknowledged_by_username: string | null;
 };
+
+export type IncidentPhase = "reported" | "responding" | "closed";
+
+export function incidentPhase(incident: Pick<Incident, "status" | "acknowledged_at">): IncidentPhase {
+  if (incident.status === "closed") return "closed";
+  if (incident.acknowledged_at) return "responding";
+  return "reported";
+}
 
 export type IncidentDraft = {
   title: string;
@@ -115,8 +126,22 @@ export function addIncident(draft: IncidentDraft, actor?: { id: string; username
     closed_at: null,
     caller_name: draft.caller_name ?? null,
     caller_contact: draft.caller_contact ?? null,
+    acknowledged_at: null,
+    acknowledged_by_user_id: null,
+    acknowledged_by_username: null,
   };
   incidents().unshift(incident);
+  return incident;
+}
+
+export function acknowledgeIncidentMemory(id: string, actor: { id: string; username: string }): Incident | null {
+  const incident = incidents().find((item) => item.id === id);
+  if (!incident || incident.status === "closed") return null;
+  if (!incident.acknowledged_at) {
+    incident.acknowledged_at = new Date().toISOString();
+    incident.acknowledged_by_user_id = actor.id;
+    incident.acknowledged_by_username = actor.username;
+  }
   return incident;
 }
 

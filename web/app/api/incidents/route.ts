@@ -15,6 +15,9 @@ export async function POST(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ ok: false, error: "Sign in to log an incident" }, { status: 401 });
   }
+  if (session.role === "responder") {
+    return NextResponse.json({ ok: false, error: "The station desk logs calls. Acknowledge one from the incident board." }, { status: 403 });
+  }
 
   let body: unknown;
   try {

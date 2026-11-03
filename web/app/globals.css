@@ -811,8 +811,23 @@ a {
 }
 
 .person-card[data-tone="alert"]::before,
-.incident-card[data-tone="open"]::before {
+.incident-card[data-tone="open"]::before,
+.incident-card[data-tone="reported"]::before {
   background: var(--alert);
+}
+
+.incident-card[data-tone="responding"]::before {
+  background: var(--ok);
+}
+
+.incident-card-link {
+  display: grid;
+  gap: 10px;
+  color: inherit;
+}
+
+.incident-card-link:hover {
+  color: inherit;
 }
 
 .person-card[data-tone="stale"]::before,
@@ -1165,6 +1180,40 @@ select:focus-visible {
   background: var(--surface-3);
   color: var(--text);
   box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+.tab-count {
+  display: inline-flex;
+  margin-left: 8px;
+  min-width: 1.25rem;
+  justify-content: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(226, 177, 90, 0.16);
+  color: var(--brass);
+  font-size: 0.72rem;
+}
+
+.metric-hit {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.metric-hit:hover .metric {
+  border-color: var(--line-strong);
+}
+
+.section-title {
+  margin: 4px 0 0;
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
 }
 
 .metrics {
@@ -1592,7 +1641,50 @@ code {
 }
 
 .modal-panel.is-wide {
-  width: min(640px, 100%);
+  width: min(980px, 100%);
+}
+
+.incident-create-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.92fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.incident-map {
+  position: sticky;
+  top: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.incident-map iframe {
+  width: 100%;
+  height: 460px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #0c1218;
+}
+
+.incident-map figcaption {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+@media (max-width: 800px) {
+  .incident-create-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .incident-map {
+    position: static;
+  }
+
+  .incident-map iframe {
+    height: 280px;
+  }
 }
 
 .modal-head {
