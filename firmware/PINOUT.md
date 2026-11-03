@@ -63,7 +63,7 @@ Each module must have a **unique I2C address** (set by hardware, e.g. BME688 SDO
 | --- | --- | --- | --- | --- |
 | SCD40 | `0x62` | `SCD40_I2C_ADDR` | `SCD40_ENABLED` | **Live** |
 | BME688 | `0x77` or `0x76` | `BME688_I2C_ADDR` / `_ALT` | `BME688_ENABLED` | **Live** (tries both at boot) |
-| MAX30102 | `0x57` | `MAX30102_I2C_ADDR` | `MAX30102_ENABLED` | **Wired** on GPIO 8 / 9. Flag stays off until a driver is linked |
+| MAX30102 | `0x57` | `MAX30102_I2C_ADDR` | `MAX30102_ENABLED` | **Wired** on GPIO 8 / 9. Part ID `0x15` counts as detected. Heart rate stays empty |
 | MPU-6050 | `0x68` | `MPU6050_I2C_ADDR` | `MPU6050_ENABLED` | **GPIO 8 / 9** with the SCD40 |
 
 Bus speed: **100 kHz** (`I2C_FREQUENCY_HZ`).
@@ -120,7 +120,7 @@ Not measured by BME688: **CO₂** (SCD40 only). Gas resistance is **not** a cert
 
 ### MAX30102 (wired — heart rate, SpO₂ estimate)
 
-The module is already on the wearable. It shares **GPIO 8 / 9** with the SCD40 and the MPU-6050. Leave the BME688 on **GPIO 17 / 18**. `MAX30102_ENABLED` stays **false** until a driver is linked, so the board does not publish heart rate yet.
+The module is already on the wearable. It shares **GPIO 8 / 9** with the SCD40 and the MPU-6050. Leave the BME688 on **GPIO 17 / 18**. The firmware reads part ID `0x15` at `0x57` and marks the sensor detected. Heart rate and SpO₂ stay empty.
 
 | MAX30102 pin | Connect to Node A |
 | --- | --- |

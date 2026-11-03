@@ -58,8 +58,8 @@ static constexpr int MPU6050_I2C_SCL_PIN = 9;
 // Set true only after that module is soldered and the matching driver is linked.
 static constexpr bool SCD40_ENABLED = true;
 static constexpr bool BME688_ENABLED = true;
-// Module is wired. Leave this false until a driver is linked.
-static constexpr bool MAX30102_ENABLED = false;
+// Part ID is read at 0x57 on GPIO 8/9. Heart rate and SpO2 stay empty.
+static constexpr bool MAX30102_ENABLED = true;
 static constexpr bool MPU6050_ENABLED = true;
 
 // MQ-6 heater uses the devkit 5V pin. AO reaches GPIO 1 through two 10 kΩ

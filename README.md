@@ -62,7 +62,7 @@ Wearer id, telemetry URL, Node B MAC, and the ESP-NOW channel are still in:
 
 **Pin map (all boards, all modules):** see **[firmware/PINOUT.md](firmware/PINOUT.md)**.
 
-Summary for Node A: SCD40, MAX30102 (`0x57`, already wired, INT open), and MPU-6050 share **GPIO 8 (SDA)** and **GPIO 9 (SCL)**. The MAX30102 flag stays off until a driver is linked. By default the BME688 uses a **second I2C bus** on **GPIO 17 (SDA)** and **GPIO 18 (SCL)** so that sensor can use its own dupont wires (`BME688_SEPARATE_I2C_BUS` in `config.h`). GPS uses UART **15/16**; cancel button **GPIO 4**; see **PINOUT.md** for the full map.
+Summary for Node A: SCD40, MAX30102 (`0x57`, already wired, INT open), and MPU-6050 share **GPIO 8 (SDA)** and **GPIO 9 (SCL)**. The MAX30102 is detected when part ID `0x15` answers. Heart rate stays empty. By default the BME688 uses a **second I2C bus** on **GPIO 17 (SDA)** and **GPIO 18 (SCL)** so that sensor can use its own dupont wires (`BME688_SEPARATE_I2C_BUS` in `config.h`). GPS uses UART **15/16**; cancel button **GPIO 4**; see **PINOUT.md** for the full map.
 
 ## Web app
 

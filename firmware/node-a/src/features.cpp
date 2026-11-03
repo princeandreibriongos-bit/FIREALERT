@@ -20,6 +20,7 @@ static Adafruit_BME680 g_bme688(&g_bme688Wire);
 static WifiCreds g_wifi = {};
 static bool g_scd40Ready = false;
 static bool g_bme688Ready = false;
+static bool g_max30102Ready = false;
 static bool g_mpu6050Ready = false;
 static uint8_t g_mpuAddr = MPU6050_I2C_ADDR;
 static int g_mpuSda = 40;
@@ -383,10 +384,49 @@ static void readBme688(WearableReadings &out) {
   publishLastBme(out);
 }
 
-static void readMax30102(WearableReadings &) {
-  if (MAX30102_ENABLED) {
-    FASerial.println("[node-a] MAX30102 flag is on but the driver is not linked");
+static constexpr uint8_t MAX30102_REG_PART_ID = 0xFF;
+static constexpr uint8_t MAX30102_PART_ID = 0x15;
+
+static bool maxReadPartId(uint8_t &part) {
+  Wire.setClock(SHARED_I2C_HZ);
+  Wire.setTimeOut(30);
+  Wire.beginTransmission(MAX30102_I2C_ADDR);
+  Wire.write(MAX30102_REG_PART_ID);
+  if (Wire.endTransmission(false) != 0) return false;
+  if (Wire.requestFrom(MAX30102_I2C_ADDR, static_cast<uint8_t>(1)) != 1) return false;
+  part = static_cast<uint8_t>(Wire.read());
+  return true;
+}
+
+static bool beginMax30102() {
+  if (!MAX30102_ENABLED) {
+    FASerial.println("[node-a] MAX30102 disabled");
+    return false;
   }
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, SHARED_I2C_HZ);
+  Wire.setClock(SHARED_I2C_HZ);
+  Wire.setTimeOut(30);
+  uint8_t part = 0;
+  if (!maxReadPartId(part)) {
+    FASerial.printf("[node-a] MAX30102 0x%02X no ack on SDA=%d SCL=%d\n", MAX30102_I2C_ADDR, I2C_SDA_PIN, I2C_SCL_PIN);
+    return false;
+  }
+  if (part != MAX30102_PART_ID) {
+    FASerial.printf("[node-a] MAX30102 0x%02X part 0x%02X is not 0x15\n", MAX30102_I2C_ADDR, part);
+    return false;
+  }
+  FASerial.printf("[node-a] MAX30102 ready at 0x%02X part 0x%02X\n", MAX30102_I2C_ADDR, part);
+  return true;
+}
+
+static void readMax30102(WearableReadings &out) {
+  if (!g_max30102Ready) return;
+  uint8_t part = 0;
+  if (!maxReadPartId(part) || part != MAX30102_PART_ID) {
+    FASerial.println("[node-a] MAX30102 read missed");
+    return;
+  }
+  out.max30102 = true;
 }
 
 static void mpuPinHigh(int pin) { pinMode(pin, INPUT_PULLUP); }
@@ -960,6 +1000,7 @@ void featuresBegin() {
   }
   if (!MPU6050_SEPARATE_I2C_BUS) g_mpu6050Ready = beginMpu6050(true);
   g_scd40Ready = beginScd40();
+  g_max30102Ready = beginMax30102();
   if (!i2cLinesIdle(BME688_I2C_SDA_PIN, BME688_I2C_SCL_PIN, "GPIO 17/18")) {
     FASerial.println("[node-a] GPIO 17/18 looked busy, trying the BME688 anyway");
   }
@@ -979,7 +1020,7 @@ void featuresBegin() {
 static void retryMissingSensors() {
   // Rare + MPU-first. Never retry SCD/BME in a tight loop — blanks are fine.
   static uint32_t lastMs = 0;
-  if (MPU6050_ENABLED && g_mpu6050Ready && g_scd40Ready && g_bme688Ready) return;
+  if (MPU6050_ENABLED && g_mpu6050Ready && g_scd40Ready && g_bme688Ready && (!MAX30102_ENABLED || g_max30102Ready)) return;
   const uint32_t now = millis();
   if (lastMs != 0 && now - lastMs < 30000) return;
   lastMs = now;
@@ -994,6 +1035,10 @@ static void retryMissingSensors() {
   if (BME688_ENABLED && !g_bme688Ready) {
     FASerial.println("[node-a] retrying BME688 (optional)");
     g_bme688Ready = beginBme688();
+  }
+  if (MAX30102_ENABLED && !g_max30102Ready) {
+    FASerial.println("[node-a] retrying MAX30102");
+    g_max30102Ready = beginMax30102();
   }
 }
 
