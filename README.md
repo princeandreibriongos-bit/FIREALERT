@@ -2,7 +2,7 @@
 
 Prototype wearable and incident board for the New Makati Central Fire Station capstone. It supplements radio and dispatch. It is not protective equipment, and it does not make tactical or medical decisions.
 
-This repository is the wearable and the gateway only. The monitoring board is a separate project and is not inside this tree.
+The wearable and gateway firmware are in `firmware/`. The monitoring board is in `capstone/`.
 
 On a new computer, read **[NEW-PC.md](NEW-PC.md)** before installing or flashing. It has the install list, the USB bridge, and the two saved Wi-Fi networks. The pin map is **[firmware/PINOUT.md](firmware/PINOUT.md)**.
 
