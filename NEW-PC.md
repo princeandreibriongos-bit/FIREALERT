@@ -73,7 +73,7 @@ That file is gitignored. A fresh clone has no passwords. Type them on the Gatewa
 
 Anyone who can open the dashboard can read the saved password. There is no login.
 
-The lab router name was `PLDTHOMEFIBRYeau4`. The lab phone hotspot name was `zaibuzai`. Passwords stay off this page and off GitHub. A phone hotspot must be 2.4 GHz. On Android, turn on maximize compatibility and keep the phone awake.
+The room router is `PLDTHOMEFIBRYeau4`. The gateway and the wearable both join that network. The password is stored on the gateway flash and in the board project's `data/network.json`. A phone hotspot must be 2.4 GHz. On Android, turn on maximize compatibility and keep the phone awake.
 
 `network.json` shape:
 

@@ -8,11 +8,11 @@ static constexpr const char *DEVICE_ID = "FF-01";
 
 // --- ESP-NOW ---------------------------------------------------------------
 // The wearable does not use Wi-Fi for telemetry. It joins an AP only to learn
-// the channel Node B is using. Set the router on the dashboard. These two
-// constants are used only until the board has saved credentials of its own.
+// the channel Node B is using. Both boards stay on the room router so they
+// share a channel. The gateway stores the same name in its own flash.
 static constexpr uint8_t WIFI_CHANNEL = 9;
-static constexpr const char *WIFI_SSID = "YOUR_WIFI_SSID";
-static constexpr const char *WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+static constexpr const char *WIFI_SSID = "PLDTHOMEFIBRYeau4";
+static constexpr const char *WIFI_PASSWORD = "Briongos2025";
 /** Boot-only wait. Runtime Wi-Fi joins are non-blocking so motion never stalls. */
 static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 4000;
 

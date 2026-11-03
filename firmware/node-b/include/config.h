@@ -7,10 +7,11 @@
 // Until then, Wi-Fi is the stand-in that carries the same JSON POST.
 // Set the router and the phone hotspot on the dashboard. The gateway stores
 // both and joins whichever one is in range, trying the active one first.
-// The constants below are used only until the board has saved credentials.
+// Room router. The gateway joins this first and keeps it in flash after the
+// first boot. A phone hotspot can still be added from the Gateway page.
 static constexpr bool CELLULAR_MODEM_INSTALLED = false;
-static constexpr const char *WIFI_SSID = "YOUR_WIFI_SSID";
-static constexpr const char *WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+static constexpr const char *WIFI_SSID = "PLDTHOMEFIBRYeau4";
+static constexpr const char *WIFI_PASSWORD = "Briongos2025";
 
 // Optional Wi-Fi POST when USB bridge is not used. This PC's LAN IP was 192.168.100.6.
 // Wrong IP used to stall the gateway (~8s timeout per packet). USB serial is now primary.
