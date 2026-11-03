@@ -89,7 +89,6 @@ static const char *joinFailDetail(wl_status_t status) {
 static constexpr size_t QUEUE_DEPTH = 32;
 static constexpr size_t PACKET_MAX = 250;
 /** After a failed Wi-Fi POST, skip HTTP for a while — USB serial already delivered the packet. */
-static uint32_t g_httpBackoffUntilMs = 0;
 
 struct QueuedPacket {
   uint8_t data[PACKET_MAX];
@@ -738,39 +737,40 @@ static void pollDashboardRouter() {
   armPreferred(true);
 }
 
-static bool postDocument(JsonDocument &doc) {
-  doc["router_ssid"] = g_wifi.ssid[0] ? g_wifi.ssid : nullptr;
-  String body;
-  serializeJson(doc, body);
-  // Primary path for this lab: USB serial → npm run bridge → localhost.
-  // Always print first so a bad TELEMETRY_URL cannot stall the ESP-NOW queue.
-  FASerial.println(body);
-
-  if (WiFi.status() != WL_CONNECTED && !CELLULAR_MODEM_INSTALLED) {
-    return true;
-  }
-  if (millis() < g_httpBackoffUntilMs) {
-    return true;
-  }
-
+static void postHostedTelemetry(const String &body) {
+  static uint32_t nextMs = 0;
+  const uint32_t now = millis();
+  if (now < nextMs || WiFi.status() != WL_CONNECTED) return;
+  WiFiClientSecure client;
+  client.setInsecure();
+  client.setTimeout(2);
   HTTPClient http;
-  // Keep this short. An 8s timeout per packet made motion look like "1 packet / minute".
-  http.setTimeout(1200);
-  if (!http.begin(TELEMETRY_URL)) {
-    FASerial.println("[node-b] HTTP begin failed; USB bridge still has the packet");
-    g_httpBackoffUntilMs = millis() + 30000;
-    return true;
+  http.setTimeout(1500);
+  if (!http.begin(client, String(HOSTED_TELEMETRY_URL))) {
+    nextMs = now + 15000;
+    return;
   }
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("User-Agent", "FIREALERT-gateway");
   http.addHeader("X-Firealert-Gateway", GATEWAY_ID);
   const int status = http.POST(body);
   http.end();
   if (status >= 200 && status < 300) {
-    g_httpBackoffUntilMs = 0;
-    return true;
+    nextMs = now + 2000;
+    return;
   }
-  FASerial.printf("[node-b] POST %s -> HTTP %d (USB ok; pausing Wi-Fi POST 30s)\n", TELEMETRY_URL, status);
-  g_httpBackoffUntilMs = millis() + 30000;
+  FASerial.printf("[node-b] hosted telemetry HTTP %d\n", status);
+  nextMs = now + 15000;
+}
+
+static bool postDocument(JsonDocument &doc) {
+  doc["router_ssid"] = g_wifi.ssid[0] ? g_wifi.ssid : nullptr;
+  String body;
+  serializeJson(doc, body);
+  // USB print stays so a bridge can still forward. The hosted post is what
+  // keeps the board updating after that window is closed.
+  FASerial.println(body);
+  postHostedTelemetry(body);
   return true;
 }
 

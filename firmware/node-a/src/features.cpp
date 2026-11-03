@@ -65,6 +65,37 @@ static void rememberWifi(const char *ssid, const char *password) {
   g_wifi.password[sizeof(g_wifi.password) - 1] = '\0';
 }
 
+static bool g_wifiTryBuiltin = false;
+
+void wearableWifiKick() {
+  const char *ssid = g_wifi.ssid;
+  const char *password = g_wifi.password;
+  if (g_wifiTryBuiltin && !wifiNameIsPlaceholder()) {
+    ssid = WIFI_SSID;
+    password = WIFI_PASSWORD;
+  }
+  if (ssid == nullptr || ssid[0] == '\0') return;
+  WiFi.persistent(false);
+  WiFi.setSleep(false);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  FASerial.printf("[node-a] Wi-Fi join %s\n", ssid);
+  if (!wifiNameIsPlaceholder() && g_wifi.ssid[0] != '\0' && strcmp(g_wifi.ssid, WIFI_SSID) != 0) {
+    g_wifiTryBuiltin = !g_wifiTryBuiltin;
+  }
+}
+
+void wearableWifiNoteConnected() {
+  if (WiFi.status() != WL_CONNECTED || wifiNameIsPlaceholder()) return;
+  const String joined = WiFi.SSID();
+  if (joined.length() == 0 || joined != WIFI_SSID || strcmp(g_wifi.ssid, WIFI_SSID) == 0) return;
+  if (!saveWifiCreds(WIFI_SSID, WIFI_PASSWORD)) return;
+  rememberWifi(WIFI_SSID, WIFI_PASSWORD);
+  g_wifi.fromNvs = true;
+  g_wifiTryBuiltin = false;
+  FASerial.printf("[node-a] kept router %s\n", WIFI_SSID);
+}
+
 static void scanI2C(TwoWire &bus, int sda, int scl, const char *label);
 static void runSensorScan();
 static void restoreBmeBus();
@@ -407,13 +438,15 @@ static bool beginMax30102() {
   Wire.setClock(SHARED_I2C_HZ);
   Wire.setTimeOut(30);
   uint8_t part = 0;
-  if (!maxReadPartId(part)) {
-    FASerial.printf("[node-a] MAX30102 0x%02X no ack on SDA=%d SCL=%d\n", MAX30102_I2C_ADDR, I2C_SDA_PIN, I2C_SCL_PIN);
-    return false;
-  }
-  if (part != MAX30102_PART_ID) {
-    FASerial.printf("[node-a] MAX30102 0x%02X part 0x%02X is not 0x15\n", MAX30102_I2C_ADDR, part);
-    return false;
+  const bool gotId = maxReadPartId(part);
+  if (!gotId) {
+    Wire.beginTransmission(MAX30102_I2C_ADDR);
+    if (Wire.endTransmission() != 0) {
+      FASerial.printf("[node-a] MAX30102 0x%02X no ack on SDA=%d SCL=%d\n", MAX30102_I2C_ADDR, I2C_SDA_PIN, I2C_SCL_PIN);
+      return false;
+    }
+    FASerial.printf("[node-a] MAX30102 ready at 0x%02X\n", MAX30102_I2C_ADDR);
+    return true;
   }
   FASerial.printf("[node-a] MAX30102 ready at 0x%02X part 0x%02X\n", MAX30102_I2C_ADDR, part);
   return true;
@@ -422,9 +455,12 @@ static bool beginMax30102() {
 static void readMax30102(WearableReadings &out) {
   if (!g_max30102Ready) return;
   uint8_t part = 0;
-  if (!maxReadPartId(part) || part != MAX30102_PART_ID) {
-    FASerial.println("[node-a] MAX30102 read missed");
-    return;
+  if (!maxReadPartId(part)) {
+    Wire.beginTransmission(MAX30102_I2C_ADDR);
+    if (Wire.endTransmission() != 0) {
+      FASerial.println("[node-a] MAX30102 read missed");
+      return;
+    }
   }
   out.max30102 = true;
 }

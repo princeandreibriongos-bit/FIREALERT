@@ -39,43 +39,46 @@ static void lockEspNowChannel(uint8_t channel) {
   g_homeChannel = channel;
 }
 
-static bool ensureWifiChannel() {
-  if (!wearableWifiConfigured()) return false;
-  if (WiFi.status() == WL_CONNECTED) {
-    const uint8_t ch = static_cast<uint8_t>(WiFi.channel());
-    if (ch != g_homeChannel) {
-      g_homeChannel = ch;
-      FASerial.printf("[node-a] Wi-Fi channel now %u\n", g_homeChannel);
-    }
-    return true;
-  }
-  // Never block the motion loop waiting for an AP — kick Wi-Fi and move on.
-  static uint32_t lastBeginMs = 0;
-  const uint32_t now = millis();
-  if (lastBeginMs == 0 || now - lastBeginMs >= 15000) {
-    lastBeginMs = now;
-    WiFi.begin(wearableWifiSsid(), wearableWifiPassword());
-    FASerial.println("[node-a] Wi-Fi join kicked (non-blocking)");
-  }
-  return false;
-}
-
-static bool ensureWifiChannelBlockingBoot() {
-  if (!wearableWifiConfigured()) return false;
-  if (WiFi.status() == WL_CONNECTED) {
-    g_homeChannel = static_cast<uint8_t>(WiFi.channel());
-    return true;
-  }
-  WiFi.begin(wearableWifiSsid(), wearableWifiPassword());
+static bool waitForWifi() {
   const uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED && (millis() - start) < WIFI_CONNECT_TIMEOUT_MS) {
     delay(100);
   }
   if (WiFi.status() != WL_CONNECTED) return false;
   g_homeChannel = static_cast<uint8_t>(WiFi.channel());
+  wearableWifiNoteConnected();
   FASerial.printf("[node-a] channel lock via Wi-Fi  IP=%s  channel=%u\n", WiFi.localIP().toString().c_str(),
                 g_homeChannel);
   return true;
+}
+
+static bool ensureWifiChannel() {
+  if (WiFi.status() == WL_CONNECTED) {
+    const uint8_t ch = static_cast<uint8_t>(WiFi.channel());
+    if (ch != g_homeChannel) {
+      g_homeChannel = ch;
+      FASerial.printf("[node-a] Wi-Fi channel now %u\n", g_homeChannel);
+    }
+    wearableWifiNoteConnected();
+    return true;
+  }
+  static uint32_t lastBeginMs = 0;
+  const uint32_t now = millis();
+  if (lastBeginMs != 0 && now - lastBeginMs < 15000) return false;
+  lastBeginMs = now;
+  wearableWifiKick();
+  return false;
+}
+
+static bool ensureWifiChannelBlockingBoot() {
+  if (WiFi.status() == WL_CONNECTED) {
+    g_homeChannel = static_cast<uint8_t>(WiFi.channel());
+    return true;
+  }
+  wearableWifiKick();
+  if (waitForWifi()) return true;
+  wearableWifiKick();
+  return waitForWifi();
 }
 
 static bool initEspNow() {
@@ -261,8 +264,7 @@ void loop() {
     lastEnvMs = millis();
   }
 
-  if (wearableWifiConfigured() && WiFi.status() != WL_CONNECTED &&
-      (lastWifiTryMs == 0 || now - lastWifiTryMs >= 15000)) {
+  if (lastWifiTryMs == 0 || now - lastWifiTryMs >= 15000) {
     lastWifiTryMs = now;
     ensureWifiChannel();
   }

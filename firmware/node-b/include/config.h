@@ -13,12 +13,11 @@ static constexpr bool CELLULAR_MODEM_INSTALLED = false;
 static constexpr const char *WIFI_SSID = "PLDTHOMEFIBRYeau4";
 static constexpr const char *WIFI_PASSWORD = "Briongos2025";
 
-// Optional Wi-Fi POST when USB bridge is not used. This PC's LAN IP was 192.168.100.6.
-// Wrong IP used to stall the gateway (~8s timeout per packet). USB serial is now primary.
+// Dead LAN address. Kept so an old dashboard pull still compiles. Live posts
+// go to the hosted board below, so a closed USB window does not hide the gateway.
 static constexpr const char *TELEMETRY_URL = "http://192.168.100.6:3000/api/telemetry";
-// The dashboard reads the hosted board's shared log. A dead LAN address never
-// updates that log, so a gateway that is already on Wi-Fi still looks undetected.
 static constexpr const char *HOSTED_LINK_URL = "https://firealert-three.vercel.app/api/link";
+static constexpr const char *HOSTED_TELEMETRY_URL = "https://firealert-three.vercel.app/api/telemetry";
 
 static constexpr const char *GATEWAY_ID = "node-b";
 static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 12000;
