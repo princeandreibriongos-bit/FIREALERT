@@ -27,6 +27,9 @@ static uint32_t g_phaseMs = 0;
 static uint8_t g_candidate[WIFI_SLOTS] = {};
 static uint8_t g_candidateCount = 0;
 static uint8_t g_candidatePos = 0;
+static uint8_t g_slotChannel[WIFI_SLOTS] = {};
+static uint8_t g_slotBssid[WIFI_SLOTS][6] = {};
+static bool g_slotHaveBssid[WIFI_SLOTS] = {};
 static bool g_channelHeld = false;
 static bool g_recheck = false;
 static char g_trying[33] = "-";
@@ -223,11 +226,20 @@ static void beginJoin(uint8_t index, bool force) {
     return;
   }
   WiFi.disconnect(false, false);
-  WiFi.begin(g_wifi.ssid, g_wifi.password);
+  const uint8_t channel = g_slotChannel[index];
+  // A scan leaves the radio off the AP channel. begin() without that channel
+  // returns WL_NO_SSID_AVAIL (status 1) even when the name was just seen.
+  if (channel > 0 && g_slotHaveBssid[index]) {
+    WiFi.begin(g_wifi.ssid, g_wifi.password, channel, g_slotBssid[index]);
+  } else if (channel > 0) {
+    WiFi.begin(g_wifi.ssid, g_wifi.password, channel);
+  } else {
+    WiFi.begin(g_wifi.ssid, g_wifi.password);
+  }
   g_phase = WifiPhase::Connecting;
   g_phaseMs = millis();
   setDetail("connecting");
-  FASerial.printf("[node-b] joining %s\n", g_wifi.ssid);
+  FASerial.printf("[node-b] joining %s ch=%u\n", g_wifi.ssid, channel);
 }
 
 static void armPreferred(bool force) {
@@ -241,14 +253,29 @@ static void armPreferred(bool force) {
 static void queueVisible(int found) {
   bool seen[WIFI_SLOTS] = {};
   int32_t rssi[WIFI_SLOTS];
+  memset(g_slotChannel, 0, sizeof(g_slotChannel));
+  memset(g_slotHaveBssid, 0, sizeof(g_slotHaveBssid));
   for (uint8_t i = 0; i < WIFI_SLOTS; i++) rssi[i] = -127;
+  FASerial.print("[node-b] scan:");
   for (int i = 0; i < found; i++) {
+    FASerial.print(' ');
+    FASerial.print(WiFi.SSID(i));
+    FASerial.print('@');
+    FASerial.print(WiFi.channel(i));
     const int8_t slot = slotForSsid(WiFi.SSID(i).c_str());
     if (slot < 0) continue;
     seen[slot] = true;
     const int32_t level = WiFi.RSSI(i);
-    if (level > rssi[slot]) rssi[slot] = level;
+    if (level <= rssi[slot]) continue;
+    rssi[slot] = level;
+    g_slotChannel[slot] = static_cast<uint8_t>(WiFi.channel(i));
+    const uint8_t *bssid = WiFi.BSSID(i);
+    if (bssid != nullptr) {
+      memcpy(g_slotBssid[slot], bssid, 6);
+      g_slotHaveBssid[slot] = true;
+    }
   }
+  FASerial.println();
   WiFi.scanDelete();
 
   uint8_t rest[WIFI_SLOTS];
@@ -271,7 +298,6 @@ static void queueVisible(int found) {
   g_candidatePos = 0;
   if (g_book.count > 0 && seen[g_book.preferred]) g_candidate[g_candidateCount++] = g_book.preferred;
   for (uint8_t i = 0; i < restCount; i++) g_candidate[g_candidateCount++] = rest[i];
-  if (g_book.count > 0 && !seen[g_book.preferred]) g_candidate[g_candidateCount++] = g_book.preferred;
 }
 
 static bool onPreferred() {
