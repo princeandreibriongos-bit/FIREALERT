@@ -2,9 +2,7 @@
 
 Prototype wearable and incident board for the New Makati Central Fire Station capstone. It supplements radio and dispatch. It is not protective equipment, and it does not make tactical or medical decisions.
 
-The stack is an ESP32-S3 wrist node, an ESP32-S3 field gateway, and a Next.js board.
-
-The wearable and gateway stay in `firmware/`. The monitoring board is a self-contained app in `capstone/`. Copy that folder to `D:\capstone` and it keeps running after the old XAMPP folder is removed. XAMPP does not serve this app.
+This repository is the wearable and the gateway only. The monitoring board is a separate project and is not inside this tree.
 
 On a new computer, read **[NEW-PC.md](NEW-PC.md)** before installing or flashing. It has the install list, the USB bridge, and the two saved Wi-Fi networks. The pin map is **[firmware/PINOUT.md](firmware/PINOUT.md)**.
 
@@ -39,7 +37,7 @@ Slots exist. The parts are not installed, and the firmware does not probe a miss
 
 ## Router
 
-On the board, open **Router**, enter the Wi-Fi name and password, and click **Save router**. The file is `capstone/data/network.json` and is not committed.
+On the board, open **Router**, enter the Wi-Fi name and password, and click **Save router**. The board project stores that in its own `data/network.json`, which is not committed.
 
 Then either:
 
@@ -68,8 +66,9 @@ Summary for Node A: SCD40, MAX30102 (`0x57`, already wired, INT open), and MPU-6
 
 ## Web app
 
+The board is not in this repository. Open the separate capstone project and run:
+
 ```bash
-cd capstone
 npm install
 npm run dev
 ```
@@ -85,7 +84,7 @@ The public landing page is open without login. Board routes (`/overview`, `/crew
 | Username | `admin` |
 | Password | `admin123` |
 
-Change this password before any real station deployment. Create additional users with `npm run user:create -- <username> <password>` from `capstone/`.
+Change this password before any real station deployment. Create additional users from the separate board project with `npm run user:create -- <username> <password>`.
 
 `npm test` checks packet normalization, signature verification, route parsing, and router-field validation.
 
@@ -129,19 +128,18 @@ npm i -g neon@latest
 neon login
 ```
 
-If `neon login` opens a browser, finish sign-in there. Then from `capstone/`:
+If `neon login` opens a browser, finish sign-in there. Then, in the separate board project:
 
 ```bash
-cd capstone
 npx neon skills -y
 neon init -y --org-id <YOUR_ORG_ID> --project-id <YOUR_PROJECT_ID> --branch production --services postgres
 neon deploy
 neon env pull --file .env.local -s postgres
 ```
 
-`neon deploy` applies `capstone/neon.ts`. `neon env pull` writes `DATABASE_URL` and related vars into `capstone/.env.local`. Do not commit `.env.local`.
+`neon deploy` applies that project's `neon.ts`. `neon env pull` writes `DATABASE_URL` and related vars into its `.env.local`. Do not commit `.env.local`.
 
-Also set a session signing secret in `capstone/.env.local` (any long random string):
+Also set a session signing secret in that project's `.env.local` (any long random string):
 
 ```env
 SESSION_SECRET=replace-with-a-long-random-string
@@ -159,8 +157,9 @@ Those values are also stored in `.neon` after `neon init`.
 
 ### 3. Schema, seed, and admin user
 
+Run these in the separate board project, not in this firmware repository:
+
 ```bash
-cd capstone
 npm install
 npm run db:push
 npm run db:seed
@@ -168,7 +167,7 @@ node --experimental-strip-types scripts/ensure-admin.ts
 npm run verify:neon
 ```
 
-- `db:push` creates/updates tables from `capstone/lib/db/schema.ts` (users, crew_members, incidents, incident_assignments, local_nodes, telemetry_packets).
+- `db:push` creates/updates tables from the board project's `lib/db/schema.ts` (users, crew_members, incidents, incident_assignments, local_nodes, telemetry_packets).
 - `db:seed` loads sample crew (FF-01 … FF-04) and a local node row.
 - `ensure-admin.ts` creates or resets the demo account **`admin` / `admin123`**.
 - `verify:neon` runs a live Postgres + auth probe.
@@ -187,7 +186,7 @@ If you prefer the website only:
 
 1. Neon Console → your project → **Connect**.
 2. Choose the pooled connection string.
-3. Create `capstone/.env.local`:
+3. In the separate board project, create `.env.local`:
 
 ```env
 DATABASE_URL=postgresql://USER:PASSWORD@HOST-pooler/neondb?sslmode=require
