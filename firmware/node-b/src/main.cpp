@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
@@ -570,12 +571,31 @@ static String networkConfigUrl() {
   return apiUrl("/api/network");
 }
 
+static bool postHostedLink(const String &body) {
+  WiFiClientSecure client;
+  client.setInsecure();
+  client.setTimeout(2);
+  HTTPClient http;
+  http.setTimeout(2000);
+  if (!http.begin(client, String(HOSTED_LINK_URL))) return false;
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("User-Agent", "FIREALERT-gateway");
+  http.addHeader("X-Firealert-Gateway", GATEWAY_ID);
+  const int status = http.POST(body);
+  http.end();
+  if (status < 200 || status >= 300) {
+    FASerial.printf("[node-b] hosted link HTTP %d\n", status);
+    return false;
+  }
+  return true;
+}
+
 static void postWifiLink() {
   if (WiFi.status() != WL_CONNECTED || g_phase == WifiPhase::Connecting) return;
   const uint32_t now = millis();
   if (now < g_linkBackoffUntilMs) return;
   static uint32_t lastMs = 0;
-  if (lastMs != 0 && now - lastMs < 5000) return;
+  if (lastMs != 0 && now - lastMs < 10000) return;
   lastMs = now;
 
   JsonDocument doc;
@@ -592,21 +612,8 @@ static void postWifiLink() {
 
   String body;
   serializeJson(doc, body);
-  HTTPClient http;
-  http.setTimeout(1200);
-  const String url = apiUrl("/api/link");
-  if (!http.begin(url)) {
-    g_linkBackoffUntilMs = now + 30000;
-    return;
-  }
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-Firealert-Gateway", GATEWAY_ID);
-  const int status = http.POST(body);
-  http.end();
-  if (status < 200 || status >= 300) {
-    FASerial.printf("[node-b] link POST %s -> HTTP %d\n", url.c_str(), status);
-    g_linkBackoffUntilMs = now + 30000;
-  }
+  // The dashboard reads the hosted board, not the old LAN IP in TELEMETRY_URL.
+  if (!postHostedLink(body)) g_linkBackoffUntilMs = now + 20000;
 }
 
 static void loadRouter() {

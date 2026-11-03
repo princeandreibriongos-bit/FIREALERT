@@ -10,6 +10,9 @@
 inline void firealertSerialBegin(unsigned long baud = 115200) {
   Serial.begin(baud);
 #if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
+  // Native USB CDC blocks when that port is closed. The bridge often listens on
+  // the CH343/CH9102 UART instead, so a blocked CDC write looks like "no gateway".
+  Serial.setTxTimeoutMs(0);
   Serial0.begin(baud);
 #endif
 }

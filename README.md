@@ -94,7 +94,7 @@ If Windows Firewall blocks the ESP32 from POSTing to the PC, keep the gateway on
 npm run bridge
 ```
 
-That auto-finds the gateway COM port, forwards Node B serial JSON to `/api/telemetry`, and pushes the saved router to the board. Optional override: `python serial-bridge.py COM7`.
+That auto-finds the gateway COM port (it will not stay on the wearable), forwards Node B serial JSON to the hosted board and to `/api/telemetry`, and pushes the saved router to the gateway. Optional override: `python serial-bridge.py COM7`. Restart the bridge after updating it. A window left open from before this fix keeps the old port and the gateway stays on last seen.
 
 Main routes:
 

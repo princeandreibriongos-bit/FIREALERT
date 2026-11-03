@@ -12,7 +12,7 @@ This is a capstone prototype for New Makati Central Fire Station. It is not prot
 | Node B, gateway | ESP32-S3-DevKitC-1. USB serial number `14:C1:9F:C8:57:D8` | Receives ESP-NOW, joins Wi-Fi, prints JSON on USB |
 | Web board | Separate project, not this folder | `http://localhost:3000`. XAMPP/Apache does not serve this app |
 
-COM port numbers change on every PC. Identify the boards by the USB serial number above, not by COM5 or COM6. Native-USB DevKits show up as USB Serial Device, VID `303A`, PID `1001`. Some kits (including replacements) use a WCH **CH343** bridge instead (`VID 1A86`, `PID 55D3`) — `npm run bridge` accepts those too. Prefer the port that prints `[node-b]` heartbeats.
+COM port numbers change on every PC. Identify the boards by the USB serial number above, not by COM5 or COM6. Native-USB DevKits show up as USB Serial Device, VID `303A`, PID `1001`. Some kits (including replacements) use a WCH UART bridge instead: **CH343** (`1A86:55D3`), **CH340** (`1A86:7523`), or **CH9102** (`1A86:55D4`). `npm run bridge` accepts those. It does not stay on a remembered COM port, and it leaves a port that prints `[node-a]`. The gateway is the port that prints `[node-b]` heartbeats.
 
 Node B firmware mirrors logs and Wi-Fi commands on **both** native USB CDC and UART0 (CH343). If the bridge only prints `sent router …` and never `heartbeat`, reflash Node B from this repo so the CH343 port speaks `[node-b]` lines. ESP32 radios are **2.4 GHz only** — a saved SSID named like `…5GHz…` will not join.
 
@@ -54,7 +54,9 @@ npm run bridge
 
 If `python` alone opens the Microsoft Store, turn off **Settings → Apps → Advanced app settings → App execution aliases → python.exe / python3.exe**, or keep using `npm run bridge` / `py -3`.
 
-The bridge forwards gateway serial JSON to `http://127.0.0.1:3000/api/telemetry`. Windows Firewall usually blocks the ESP32 from POSTing straight to the PC, so the USB bridge is the path that actually fills the dashboard. Open the serial port with DTR and RTS off. The default pyserial settings reset the board or swallow the Wi-Fi line.
+The bridge forwards gateway serial JSON to the hosted board first (`https://firealert-three.vercel.app`), then to `http://127.0.0.1:3000/api/telemetry`. The page you are looking at reads that hosted log. A bridge that only posts to localhost leaves the gateway on “last seen”. Windows Firewall usually blocks the ESP32 from POSTing straight to the PC. Open the serial port with DTR and RTS off. The default pyserial settings reset the board or swallow the Wi-Fi line.
+
+Restart the bridge after pulling this fix. An already-open window keeps the old port picker. Stop it and run `npm run bridge` again from the board project. If that folder is an older copy, run `py -3 firmware\tools\serial-bridge.py` from this repo instead. If the pill stays on last seen, the window should print `Gateway detected on COMx` and `gateway wifi=up`. A window that only prints wearable lines was on the wrong board.
 
 The bridge also sends the active Wi-Fi name to the gateway and to the other ESP32 (the wearable) so both end up on the same channel. Restart the bridge after pulling a new `serial-bridge.py`. An already-running bridge keeps the old code.
 
@@ -89,7 +91,7 @@ The top-level `ssid` mirrors the active profile. `GET /api/network` and `PUT /ap
 
 ## Firmware on this PC
 
-`firmware/node-b/include/config.h` has `TELEMETRY_URL` set to `http://192.168.1.13:3000/api/telemetry`. That address is the previous PC. On a new computer, set it to this PC's IPv4 before flashing the gateway, for example `http://192.168.1.50:3000/api/telemetry`. The PC and the gateway must be on the same LAN. The USB bridge still works if that URL is wrong. A direct Wi-Fi POST from the gateway does not.
+`firmware/node-b/include/config.h` still has an old LAN `TELEMETRY_URL`. That address is not this PC, and a direct packet POST there does not update the dashboard. Link heartbeats are different: when Node B is on Wi-Fi it posts them to `HOSTED_LINK_URL` (`https://firealert-three.vercel.app/api/link`), which is the log this board reads. Reflash Node B after pulling this change or a gateway that is already joined still looks undetected. USB serial remains the path for the wearable packets. The USB bridge still works when that LAN URL is wrong.
 
 `WIFI_SSID` in both `config.h` files is a placeholder. After the first USB save, the boards keep the name in their own flash. `config.h` is used only when a board has never stored credentials.
 
