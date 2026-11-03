@@ -88,11 +88,11 @@ describe("connection phases", () => {
           phase: null,
           trying: null,
           detail: null,
-          seen_at: "2026-10-26T02:59:00.000Z",
+          seen_at: "2026-10-26T02:57:00.000Z",
         },
         now,
       ),
-      "waiting",
+      "stale",
     );
   });
 

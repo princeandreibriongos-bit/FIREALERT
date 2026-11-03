@@ -96,7 +96,15 @@ function ShellInner({ children }: { children: ReactNode }) {
   const gatewayState = error ? "offline" : gatewayPhase(gateway, now);
   const wearableState = error ? "offline" : wearablePhase(crew, now);
   const gatewayLabel =
-    gatewayState === "up" ? "Gateway connected" : gatewayState === "down" ? "Gateway Wi-Fi down" : gatewayState === "offline" ? "Board offline" : "Gateway waiting";
+    gatewayState === "up"
+      ? "Gateway connected"
+      : gatewayState === "down"
+        ? "Gateway Wi-Fi down"
+        : gatewayState === "stale"
+          ? "Gateway last seen"
+          : gatewayState === "offline"
+            ? "Board offline"
+            : "Gateway waiting";
   const wearableLabel =
     wearableState === "live" ? "Wearable connected" : wearableState === "stale" ? "Wearable stale" : wearableState === "offline" ? "Board offline" : "Wearable waiting";
 

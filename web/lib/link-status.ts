@@ -96,17 +96,23 @@ export function readLink(): GatewayLink {
   return { ...store() };
 }
 
-const HEARTBEAT_FRESH_MS = 18_000;
-/** Packets land about every 3–5s; allow a few misses before the pill flips to stale. */
-const WEARABLE_FRESH_MS = 45_000;
+/**
+ * Heartbeats are stored on a shared log that only allows about one write and
+ * one read every 25 seconds. A check-in stays "connected" for 90 seconds so
+ * that gap does not flip the pill off between real posts.
+ */
+const HEARTBEAT_FRESH_MS = 90_000;
+/** Packets share that same log budget. A few missed publishes still count as live. */
+const WEARABLE_FRESH_MS = 90_000;
 
-export type GatewayPhase = "up" | "down" | "waiting";
+export type GatewayPhase = "up" | "down" | "stale" | "waiting";
 export type WearablePhase = "live" | "stale" | "waiting";
 
 export function gatewayPhase(link: GatewayLink | null, now: number): GatewayPhase {
   if (!link?.seen_at) return "waiting";
   const seen = Date.parse(link.seen_at);
-  if (Number.isNaN(seen) || now - seen > HEARTBEAT_FRESH_MS) return "waiting";
+  if (Number.isNaN(seen)) return "waiting";
+  if (now - seen > HEARTBEAT_FRESH_MS) return "stale";
   return link.wifi === "up" ? "up" : "down";
 }
 
@@ -180,6 +186,20 @@ export function diagnoseGateway(link: GatewayLink | null, now: number, activeSsi
       summary: `Gateway is on ${name}${link?.ip ? ` at ${link.ip}` : ""}. Password and network name are working.`,
       likely: "ok",
       steps: ["If the wearable pill is still waiting, power the wrist node and keep both boards on the same 2.4 GHz network/channel."],
+    };
+  }
+
+  if (phase === "stale") {
+    const name = link?.ssid || trying || "the last network";
+    return {
+      title: "Link went quiet",
+      summary: `The gateway was on ${name}${link?.ip ? ` at ${link.ip}` : ""}, then stopped checking in. The last report is still on the board. This is not a wrong-password result.`,
+      likely: "usb",
+      steps: [
+        "Leave Node B powered. While it is on Wi-Fi it posts a heartbeat here about every 10 seconds.",
+        "If nothing new arrives, plug Node B into this computer and run npm run bridge from web/. That copies USB lines when the radio post cannot land.",
+        "Wait for a new heartbeat before changing the Wi-Fi name or password.",
+      ],
     };
   }
 

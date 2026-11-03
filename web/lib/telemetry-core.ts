@@ -300,7 +300,7 @@ export function co2Cue(ppm: number | null, installed: boolean): Co2Cue {
 export function linkState(receivedAt: string, now = Date.now()): "live" | "stale" | "unknown" {
   const at = Date.parse(receivedAt);
   if (Number.isNaN(at)) return "unknown";
-  return now - at <= 45_000 ? "live" : "stale";
+  return now - at <= 90_000 ? "live" : "stale";
 }
 
 export type AirKind = "awaiting" | "steady" | "occupied" | "mix" | "both" | "bme";

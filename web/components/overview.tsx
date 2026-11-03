@@ -55,7 +55,10 @@ export function Overview() {
       />
 
       {error ? <p className="banner is-error">{error}</p> : null}
-      <section className={`link-banner is-${linkReady ? "live" : wearableState === "stale" || gatewayState === "down" ? "wait" : "idle"}`} aria-live="polite">
+      <section
+        className={`link-banner is-${linkReady ? "live" : wearableState === "stale" || gatewayState === "stale" || gatewayState === "down" ? "wait" : "idle"}`}
+        aria-live="polite"
+      >
         <div>
           <p className="eyebrow">Hardware link</p>
           <h2>
@@ -65,7 +68,9 @@ export function Overview() {
                 ? "Gateway is on Wi-Fi. Waiting for the wearable."
                 : wearableState === "live"
                   ? "Wearable packets are arriving."
-                  : "Waiting for a live link"}
+                  : gatewayState === "stale" || wearableState === "stale"
+                    ? "The last report is on the board. The link is quiet."
+                    : "Waiting for a live link"}
           </h2>
           <p className="card-note">
             {hardware
@@ -85,7 +90,11 @@ export function Overview() {
                     : gateway?.detail === "not_in_range" || gateway?.detail === "ssid_not_found"
                       ? "Wi-Fi down (not in range)"
                       : "Wi-Fi down"
-                  : "Waiting (USB)"}
+                  : gatewayState === "stale"
+                    ? gateway?.ssid
+                      ? `Last seen · ${gateway.ssid}`
+                      : "Last seen"
+                    : "Waiting (USB)"}
             </dd>
           </div>
           <div>

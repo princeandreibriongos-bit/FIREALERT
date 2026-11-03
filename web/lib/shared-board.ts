@@ -1,11 +1,23 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { capItems, EMPTY_GATEWAY, packetKey, parseBoard, type SharedBoard } from "./board-shape";
 import type { Incident } from "./incidents";
 import type { GatewayLink } from "./link-status";
 import { redisCommand, redisConfig } from "./redis-rest";
 import type { NormalizedTelemetry } from "./telemetry-core";
 
-const BOARD_URL = "https://mantledb.sh/v2/firealert-makati-b81f3fd818ec/board";
-const PUBLISH_GAP_MS = 4_000;
+/**
+ * The previous namespace (firealert-makati-b81f3fd818ec) is stuck over the
+ * free 10,000 requests/day cap, so every heartbeat written there was dropped.
+ * This document is a fresh namespace. Writes are coalesced so one board plus
+ * the gateway stay inside that cap.
+ */
+const BOARD_URL = (process.env.FIREALERT_BOARD_URL || "").trim() || "https://mantledb.sh/v2/firealert-nmcfs-live/board";
+const READ_CACHE_MS = 25_000;
+const WRITE_GAP_MS = 25_000;
+const FAIL_BACKOFF_START_MS = 60_000;
+const FAIL_BACKOFF_MAX_MS = 15 * 60_000;
 const TELEMETRY_KEY = "firealert:telemetry";
 const LINK_KEY = "firealert:link";
 const INCIDENTS_KEY = "firealert:incidents";
@@ -20,89 +32,173 @@ export function boardBackend(): BoardBackend {
 
 let latestItems: NormalizedTelemetry[] = [];
 let latestGateway: GatewayLink = { ...EMPTY_GATEWAY };
-let itemsDirty = false;
-let gatewayDirty = false;
-let pending: ReturnType<typeof setTimeout> | null = null;
-let lastSent = 0;
-let primed = false;
+let latestIncidents: Incident[] = [];
+let itemsBased = false;
 let cache: { at: number; doc: SharedBoard } | null = null;
-let cacheGeneration = 0;
 let inflight: Promise<SharedBoard> | null = null;
+let pending: Record<string, unknown> = {};
+let chain: Promise<void> = Promise.resolve();
+let lastWriteSlot = -1;
+let writeBackoffUntil = 0;
+let readBackoffUntil = 0;
+let writeFailStreak = 0;
+let diskTried = false;
+let primed = false;
+
+function emptyBoard(): SharedBoard {
+  return { items: [], gateway: { ...EMPTY_GATEWAY }, incidents: [] };
+}
 
 function publishingFromMemory(): boolean {
   return boardBackend() === "shared" && process.env.NODE_ENV === "development";
 }
 
+function boardPath(): string {
+  const override = (process.env.FIREALERT_BOARD_FILE || "").trim();
+  if (override) return override;
+  return path.join(process.cwd(), "data", "live-board.json");
+}
+
+function fallbackPath(): string {
+  return path.join(os.tmpdir(), "firealert-live-board.json");
+}
+
+async function readDisk(): Promise<SharedBoard | null> {
+  for (const target of [boardPath(), fallbackPath()]) {
+    try {
+      return parseBoard(JSON.parse(await readFile(target, "utf8")));
+    } catch {
+      // Missing or unreadable. Try the next location.
+    }
+  }
+  return null;
+}
+
+async function saveDisk(doc: SharedBoard | undefined): Promise<void> {
+  if (!doc) return;
+  const body = JSON.stringify(doc);
+  try {
+    await mkdir(path.dirname(boardPath()), { recursive: true });
+    await writeFile(boardPath(), body);
+    return;
+  } catch {
+    // The project directory can be read-only on a host. Keep a temp copy.
+  }
+  try {
+    await writeFile(fallbackPath(), body);
+  } catch {
+    // A failed local copy must not block the heartbeat.
+  }
+}
+
+async function hydrateFromDisk(): Promise<void> {
+  if (diskTried) return;
+  diskTried = true;
+  if (cache) return;
+  const doc = await readDisk();
+  if (!doc) return;
+  cache = { at: 0, doc };
+  latestItems = doc.items;
+  latestGateway = doc.gateway;
+  latestIncidents = doc.incidents;
+}
+
+function seenMs(value: string | null | undefined): number {
+  const parsed = Date.parse(value ?? "");
+  return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+}
+
+function remember(doc: SharedBoard, trusted: boolean): void {
+  const gateway = seenMs(latestGateway.seen_at) >= seenMs(doc.gateway.seen_at) ? latestGateway : doc.gateway;
+  const items = seenMs(latestItems[0]?.received_at) >= seenMs(doc.items[0]?.received_at) ? latestItems : doc.items;
+  const incidents = doc.incidents.length >= latestIncidents.length ? doc.incidents : latestIncidents;
+  const merged: SharedBoard = { items, gateway, incidents };
+  cache = { at: trusted ? Date.now() : (cache?.at ?? 0), doc: merged };
+  latestItems = items;
+  latestGateway = gateway;
+  latestIncidents = incidents;
+  if (trusted) itemsBased = true;
+}
+
+function mergePending(partial: Record<string, unknown>): void {
+  if (Array.isArray(partial.items)) latestItems = partial.items as NormalizedTelemetry[];
+  if (partial.gateway && typeof partial.gateway === "object") latestGateway = partial.gateway as GatewayLink;
+  if (Array.isArray(partial.incidents)) latestIncidents = partial.incidents as Incident[];
+  pending = { ...pending, ...partial };
+  cache = {
+    at: Date.now(),
+    doc: { items: latestItems, gateway: latestGateway, incidents: latestIncidents },
+  };
+}
+
+function armWriteBackoff(): void {
+  writeFailStreak += 1;
+  const delay = Math.min(FAIL_BACKOFF_MAX_MS, FAIL_BACKOFF_START_MS * 2 ** Math.min(writeFailStreak - 1, 4));
+  writeBackoffUntil = Date.now() + delay;
+}
+
+function armReadBackoff(): void {
+  if (Date.now() < readBackoffUntil) return;
+  readBackoffUntil = Date.now() + FAIL_BACKOFF_START_MS;
+}
+
+async function flushPending(): Promise<void> {
+  if (Object.keys(pending).length === 0) return;
+  const now = Date.now();
+  const slot = Math.floor(now / WRITE_GAP_MS);
+  if (slot === lastWriteSlot || now < writeBackoffUntil) return;
+  const body = pending;
+  pending = {};
+  try {
+    await patchBoard(body);
+    lastWriteSlot = slot;
+    writeFailStreak = 0;
+    writeBackoffUntil = 0;
+    await saveDisk(cache?.doc);
+  } catch (error) {
+    pending = { ...body, ...pending };
+    armWriteBackoff();
+    console.error("[FIREALERT] shared log", error);
+  }
+}
+
+function publishShared(partial: Record<string, unknown>): Promise<void> {
+  mergePending(partial);
+  const run = chain.then(flushPending);
+  chain = run.catch(() => undefined);
+  return run;
+}
+
 export function primeLive(items: NormalizedTelemetry[], gateway: GatewayLink): void {
   if (primed || !publishingFromMemory()) return;
   primed = true;
+  const partial: Record<string, unknown> = {};
   if (items.length) {
-    latestItems = items;
-    itemsDirty = true;
+    latestItems = capItems(items);
+    itemsBased = true;
+    partial.items = latestItems;
   }
-  if (gateway.seen_at) {
-    latestGateway = gateway;
-    gatewayDirty = true;
-  }
-  schedule();
+  if (gateway.seen_at) partial.gateway = gateway;
+  if (Object.keys(partial).length === 0) return;
+  void publishShared(partial);
 }
 
 export function noteItems(items: NormalizedTelemetry[]): void {
   if (!publishingFromMemory()) return;
-  latestItems = items;
-  itemsDirty = true;
-  schedule();
+  itemsBased = true;
+  void publishShared({ items: capItems(items) });
 }
 
 export function noteGateway(gateway: GatewayLink): void {
   if (!publishingFromMemory()) return;
-  latestGateway = gateway;
-  gatewayDirty = true;
-  schedule();
-}
-
-function schedule(): void {
-  if (pending) return;
-  const delay = Math.max(0, PUBLISH_GAP_MS - (Date.now() - lastSent));
-  pending = setTimeout(() => {
-    void flush();
-  }, delay);
-}
-
-async function flush(): Promise<void> {
-  pending = null;
-  const body: Record<string, unknown> = {};
-  if (itemsDirty) {
-    body.items = capItems(latestItems);
-    itemsDirty = false;
-  }
-  if (gatewayDirty) {
-    body.gateway = latestGateway;
-    gatewayDirty = false;
-  }
-  if (Object.keys(body).length === 0) return;
-  try {
-    await patchBoard(body);
-    lastSent = Date.now();
-    const count = Array.isArray(body.items) ? body.items.length : null;
-    console.log(`[FIREALERT] shared log${count == null ? "" : ` items=${count}`}${body.gateway ? " gateway" : ""}`);
-  } catch (error) {
-    console.error("[FIREALERT] shared log", error);
-    if (body.items) itemsDirty = true;
-    if (body.gateway) gatewayDirty = true;
-  }
-  if (itemsDirty || gatewayDirty) schedule();
-}
-
-function invalidateCache(): void {
-  cacheGeneration += 1;
-  cache = null;
+  void publishShared({ gateway });
 }
 
 async function patchBoard(partial: Record<string, unknown>): Promise<void> {
+  const headers = { "Content-Type": "application/json", "User-Agent": "FIREALERT-board" };
   const response = await fetch(BOARD_URL, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(partial),
     cache: "no-store",
     signal: AbortSignal.timeout(8000),
@@ -110,31 +206,53 @@ async function patchBoard(partial: Record<string, unknown>): Promise<void> {
   if (response.status === 404) {
     const created = await fetch(BOARD_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ items: [], gateway: { ...EMPTY_GATEWAY }, incidents: [], ...partial }),
+      headers,
+      body: JSON.stringify({ items: latestItems, gateway: latestGateway, incidents: latestIncidents, ...partial }),
       cache: "no-store",
       signal: AbortSignal.timeout(8000),
     });
     if (!created.ok) throw new Error(`shared log HTTP ${created.status}`);
-    invalidateCache();
+    itemsBased = true;
     return;
   }
   if (!response.ok) throw new Error(`shared log HTTP ${response.status}`);
-  invalidateCache();
+  itemsBased = true;
 }
 
 async function fetchBoard(): Promise<SharedBoard> {
-  const generation = cacheGeneration;
-  const response = await fetch(BOARD_URL, { cache: "no-store", signal: AbortSignal.timeout(8000) });
-  if (response.status === 404) return { items: [], gateway: { ...EMPTY_GATEWAY }, incidents: [] };
-  if (!response.ok) throw new Error(`shared log HTTP ${response.status}`);
-  const doc = parseBoard(await response.json());
-  if (generation === cacheGeneration) cache = { at: Date.now(), doc };
-  return doc;
+  await hydrateFromDisk();
+  if (Date.now() < readBackoffUntil) return cache?.doc ?? (await readDisk()) ?? emptyBoard();
+  try {
+    const response = await fetch(BOARD_URL, {
+      cache: "no-store",
+      headers: { "User-Agent": "FIREALERT-board" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (response.status === 404) {
+      const doc = emptyBoard();
+      remember(doc, true);
+      return doc;
+    }
+    if (response.status === 429 || response.status >= 500) {
+      armReadBackoff();
+      console.error(`[FIREALERT] shared log HTTP ${response.status}`);
+      return cache?.doc ?? (await readDisk()) ?? emptyBoard();
+    }
+    if (!response.ok) throw new Error(`shared log HTTP ${response.status}`);
+    const doc = parseBoard(await response.json());
+    readBackoffUntil = 0;
+    remember(doc, true);
+    return doc;
+  } catch (error) {
+    armReadBackoff();
+    console.error("[FIREALERT] shared log", error);
+    return cache?.doc ?? (await readDisk()) ?? emptyBoard();
+  }
 }
 
 export async function readSharedBoard(): Promise<SharedBoard> {
-  if (cache && Date.now() - cache.at < 2000) return cache.doc;
+  await hydrateFromDisk();
+  if (cache && cache.at !== 0 && Date.now() - cache.at < READ_CACHE_MS) return cache.doc;
   if (!inflight) {
     inflight = fetchBoard().finally(() => {
       inflight = null;
@@ -149,7 +267,7 @@ export async function writeSharedIncidents(incidents: Incident[]): Promise<void>
     return;
   }
   if (boardBackend() !== "shared") return;
-  await patchBoard({ incidents });
+  await publishShared({ incidents });
 }
 
 export async function writeSharedGateway(gateway: GatewayLink): Promise<void> {
@@ -158,7 +276,7 @@ export async function writeSharedGateway(gateway: GatewayLink): Promise<void> {
     return;
   }
   if (boardBackend() !== "shared") return;
-  await patchBoard({ gateway });
+  await publishShared({ gateway });
 }
 
 export async function writeSharedItems(items: NormalizedTelemetry[]): Promise<void> {
@@ -168,7 +286,8 @@ export async function writeSharedItems(items: NormalizedTelemetry[]): Promise<vo
     return;
   }
   if (boardBackend() !== "shared") return;
-  await patchBoard({ items: capItems(items) });
+  itemsBased = true;
+  await publishShared({ items: capItems(items) });
 }
 
 export async function appendSharedItem(entry: NormalizedTelemetry): Promise<void> {
@@ -189,10 +308,15 @@ export async function appendSharedItem(entry: NormalizedTelemetry): Promise<void
     await redisCommand(["LTRIM", TELEMETRY_KEY, 0, 249]);
     return;
   }
-  const current = await readSharedBoard();
+  if (boardBackend() !== "shared") return;
+  if (!itemsBased) await readSharedBoard();
   const id = packetKey(entry);
-  if (current.items.some((item) => packetKey(item) === id)) return;
-  await writeSharedItems([entry, ...current.items]);
+  const base = itemsBased ? latestItems : [];
+  const items = capItems([entry, ...base.filter((item) => packetKey(item) !== id)]);
+  latestItems = items;
+  // A failed read must not replace the stored log with a one-packet list.
+  if (!itemsBased) return;
+  await publishShared({ items });
 }
 
 export async function readRedisBoard(): Promise<SharedBoard> {

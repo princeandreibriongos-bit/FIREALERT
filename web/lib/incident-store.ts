@@ -45,8 +45,13 @@ export async function loadIncidentList(): Promise<Incident[]> {
 
   const kind = boardBackend();
   if (kind === "memory") return listIncidents();
-  if (kind === "redis") return (await readRedisBoard()).incidents as Incident[];
-  return (await readSharedBoard()).incidents as Incident[];
+  try {
+    if (kind === "redis") return (await readRedisBoard()).incidents as Incident[];
+    return (await readSharedBoard()).incidents as Incident[];
+  } catch (error) {
+    console.error("[FIREALERT] incident read", error);
+    return listIncidents();
+  }
 }
 
 async function rememberShared(next: Incident[]): Promise<void> {

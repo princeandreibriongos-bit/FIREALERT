@@ -89,7 +89,7 @@ describe("telemetry", () => {
     assert.equal(co2Cue(1500, true), "elevated");
     assert.equal(co2Cue(6000, true), "high");
     assert.equal(linkState(at, Date.parse(at) + 5000), "live");
-    assert.equal(linkState(at, Date.parse(at) + 46000), "stale");
+    assert.equal(linkState(at, Date.parse(at) + 91_000), "stale");
   });
 
   it("reads CO2 and gas resistance together", () => {
