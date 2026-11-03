@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "config.h"
+#include "dual_serial.h"
 #include "ei_activity.h"
 #include "wifi_store.h"
 
@@ -86,7 +87,7 @@ static bool i2cLinesIdle(int sda, int scl, const char *label) {
   const int sdaLevel = digitalRead(sda);
   const int sclLevel = digitalRead(scl);
   if (sdaLevel == HIGH && sclLevel == HIGH) return true;
-  Serial.printf("[node-a] %s bus held down SDA=%d SCL=%d — check the jumpers\n", label, sdaLevel, sclLevel);
+  FASerial.printf("[node-a] %s bus held down SDA=%d SCL=%d — check the jumpers\n", label, sdaLevel, sclLevel);
   return false;
 }
 
@@ -94,7 +95,7 @@ static bool pollFallCommand() {
   static char line[128];
   static size_t used = 0;
   bool fired = false;
-  while (takeSerialLine(line, sizeof(line), used)) {
+  while (takeSerialLine(FASerial, line, sizeof(line), used)) {
     if (strcasecmp(line, "fall") == 0) fired = true;
     if (strcasecmp(line, "scan") == 0) runSensorScan();
     char ssid[33];
@@ -103,7 +104,7 @@ static bool pollFallCommand() {
       const bool same = strcmp(g_wifi.ssid, ssid) == 0 && strcmp(g_wifi.password, password) == 0;
       rememberWifi(ssid, password);
       g_wifi.fromNvs = true;
-      Serial.printf("[node-a] router saved: %s\n", g_wifi.ssid);
+      FASerial.printf("[node-a] router saved: %s\n", g_wifi.ssid);
       if (!(same && WiFi.status() == WL_CONNECTED)) {
         WiFi.persistent(false);
         WiFi.setSleep(false);
@@ -143,13 +144,13 @@ static bool predictFall(const WearableReadings &in) {
     const bool recent = (now - freefallMs) < 1500;
     sawFreefall = false;
     if (recent && mag >= FALL_IMPACT_G) {
-      Serial.printf("[node-a] fall cue impact g=%.2f\n", mag);
+      FASerial.printf("[node-a] fall cue impact g=%.2f\n", mag);
       return true;
     }
   }
 
   if (gyro >= FALL_TUMBLE_GYRO_DPS && mag >= FALL_TUMBLE_ACCEL_G) {
-    Serial.printf("[node-a] fall cue tumble g=%.2f gyro=%.0f\n", mag, gyro);
+    FASerial.printf("[node-a] fall cue tumble g=%.2f gyro=%.0f\n", mag, gyro);
     return true;
   }
   return false;
@@ -180,14 +181,14 @@ static void tickFall(WearableReadings &out) {
   if (cancel && alert) {
     g_fall = FALL_CANCELLED;
     justCancelled = true;
-    Serial.println("[node-a] fall cue cancelled");
+    FASerial.println("[node-a] fall cue cancelled");
   }
 
   if (g_fall == FALL_GRACE) {
     const uint32_t elapsed = now - g_graceStartMs;
     if (elapsed >= FALL_GRACE_MS) {
       g_fall = FALL_DISTRESS;
-      Serial.println("[node-a] grace elapsed — distress");
+      FASerial.println("[node-a] grace elapsed — distress");
     }
   }
 
@@ -195,7 +196,7 @@ static void tickFall(WearableReadings &out) {
   if (trigger) {
     g_fall = FALL_GRACE;
     g_graceStartMs = now;
-    Serial.printf("[node-a] possible fall — %lu ms to cancel\n", static_cast<unsigned long>(FALL_GRACE_MS));
+    FASerial.printf("[node-a] possible fall — %lu ms to cancel\n", static_cast<unsigned long>(FALL_GRACE_MS));
   }
 
   out.grace_remaining_ms = 0;
@@ -213,7 +214,7 @@ static void tickFall(WearableReadings &out) {
 
 static bool beginScd40() {
   if (!SCD40_ENABLED) {
-    Serial.println("[node-a] SCD40 disabled");
+    FASerial.println("[node-a] SCD40 disabled");
     return false;
   }
 
@@ -231,19 +232,19 @@ static bool beginScd40() {
   uint64_t serialNumber = 0;
   const int16_t identityError = g_scd4x.getSerialNumber(serialNumber);
   if (identityError) {
-    Serial.printf("[node-a] SCD40 not found at 0x%02X (err %d)\n", SCD40_I2C_ADDR, identityError);
+    FASerial.printf("[node-a] SCD40 not found at 0x%02X (err %d)\n", SCD40_I2C_ADDR, identityError);
     return false;
   }
 
-  Serial.printf("[node-a] SCD40 serial %012llX\n", static_cast<unsigned long long>(serialNumber));
+  FASerial.printf("[node-a] SCD40 serial %012llX\n", static_cast<unsigned long long>(serialNumber));
   // A second stop-then-start is what actually makes this chip begin measuring.
   g_scd4x.stopPeriodicMeasurement();
   const int16_t startError = g_scd4x.startPeriodicMeasurement();
   if (startError) {
-    Serial.printf("[node-a] SCD40 startPeriodicMeasurement failed (%d)\n", startError);
+    FASerial.printf("[node-a] SCD40 startPeriodicMeasurement failed (%d)\n", startError);
     return false;
   }
-  Serial.println("[node-a] SCD40 periodic measurement started");
+  FASerial.println("[node-a] SCD40 periodic measurement started");
   g_scdArmedMs = millis();
   return true;
 }
@@ -272,7 +273,7 @@ static void readScd40(WearableReadings &out) {
   if (readyErr || !ready) {
     publishLastScd(out);
     if (now - g_scdLogMs > 8000) {
-      Serial.printf("[node-a] SCD40 not ready (err %d) — blanking until next hit\n", readyErr);
+      FASerial.printf("[node-a] SCD40 not ready (err %d) — blanking until next hit\n", readyErr);
       g_scdLogMs = now;
     }
     if (++g_scdErrors >= 6) {
@@ -280,7 +281,7 @@ static void readScd40(WearableReadings &out) {
       const int16_t startError = g_scd4x.startPeriodicMeasurement();
       g_scdErrors = 0;
       g_scdArmedMs = millis();
-      Serial.printf("[node-a] SCD40 rearm %d\n", startError);
+      FASerial.printf("[node-a] SCD40 rearm %d\n", startError);
     }
     return;
   }
@@ -318,17 +319,17 @@ static bool beginBme688() {
     g_bme688Wire.end();
     g_bme688Wire.begin(BME688_I2C_SDA_PIN, BME688_I2C_SCL_PIN, I2C_FREQUENCY_HZ);
     g_bme688Wire.setTimeOut(100);
-    Serial.printf("[node-a] BME688 I2C SDA=%d SCL=%d\n", BME688_I2C_SDA_PIN, BME688_I2C_SCL_PIN);
+    FASerial.printf("[node-a] BME688 I2C SDA=%d SCL=%d\n", BME688_I2C_SDA_PIN, BME688_I2C_SCL_PIN);
   }
   const uint8_t candidates[] = {BME688_I2C_ADDR, BME688_I2C_ADDR_ALT};
   for (uint8_t addr : candidates) {
     if (g_bme688.begin(addr)) {
       configureBme688();
-      Serial.printf("[node-a] BME688 ready at 0x%02X\n", addr);
+      FASerial.printf("[node-a] BME688 ready at 0x%02X\n", addr);
       return true;
     }
   }
-  Serial.printf("[node-a] BME688 not found at 0x%02X or 0x%02X\n", BME688_I2C_ADDR, BME688_I2C_ADDR_ALT);
+  FASerial.printf("[node-a] BME688 not found at 0x%02X or 0x%02X\n", BME688_I2C_ADDR, BME688_I2C_ADDR_ALT);
   return false;
 }
 
@@ -384,7 +385,7 @@ static void readBme688(WearableReadings &out) {
 
 static void readMax30102(WearableReadings &) {
   if (MAX30102_ENABLED) {
-    Serial.println("[node-a] MAX30102 flag is on but the driver is not linked");
+    FASerial.println("[node-a] MAX30102 flag is on but the driver is not linked");
   }
 }
 
@@ -464,7 +465,7 @@ static uint8_t mpuReadBitByte(bool ack) {
 static void mpuBusInit() {
   mpuPinHigh(g_mpuSda);
   mpuPinHigh(g_mpuScl);
-  Serial.printf("[node-a] MPU-6050 I2C SDA=%d SCL=%d\n", g_mpuSda, g_mpuScl);
+  FASerial.printf("[node-a] MPU-6050 I2C SDA=%d SCL=%d\n", g_mpuSda, g_mpuScl);
 }
 
 static void mpuBusClear() {
@@ -503,13 +504,13 @@ static bool mpuSoftRead(uint8_t addr, uint8_t reg, uint8_t *data, size_t len, bo
   if (!mpuWriteBitByte(static_cast<uint8_t>(addr << 1))) {
     mpuStop();
     if (report) {
-      Serial.printf("[node-a] MPU-6050 0x%02X address nack on SDA=%d SCL=%d\n", addr, g_mpuSda, g_mpuScl);
+      FASerial.printf("[node-a] MPU-6050 0x%02X address nack on SDA=%d SCL=%d\n", addr, g_mpuSda, g_mpuScl);
     }
     return false;
   }
   if (!mpuWriteBitByte(reg)) {
     mpuStop();
-    if (report) Serial.printf("[node-a] MPU-6050 0x%02X register nack\n", addr);
+    if (report) FASerial.printf("[node-a] MPU-6050 0x%02X register nack\n", addr);
     return false;
   }
   mpuStop();
@@ -517,7 +518,7 @@ static bool mpuSoftRead(uint8_t addr, uint8_t reg, uint8_t *data, size_t len, bo
   mpuStart();
   if (!mpuWriteBitByte(static_cast<uint8_t>((addr << 1) | 1))) {
     mpuStop();
-    if (report) Serial.printf("[node-a] MPU-6050 0x%02X read nack\n", addr);
+    if (report) FASerial.printf("[node-a] MPU-6050 0x%02X read nack\n", addr);
     return false;
   }
   for (size_t i = 0; i < len; ++i) data[i] = mpuReadBitByte(i + 1 < len);
@@ -542,7 +543,7 @@ static int16_t mpuRead16From(TwoWire &bus) {
 static bool mpuWhoAmI(uint8_t addr, uint8_t &who) {
   if (MPU6050_SEPARATE_I2C_BUS) {
     if (!mpuSoftRead(addr, 0x75, &who, 1, true)) return false;
-    Serial.printf("[node-a] MPU-6050 0x%02X whoami 0x%02X\n", addr, who);
+    FASerial.printf("[node-a] MPU-6050 0x%02X whoami 0x%02X\n", addr, who);
     return who == 0x68 || who == 0x70 || who == 0x71 || who == 0x98;
   }
   Wire.setClock(SHARED_I2C_HZ);
@@ -551,17 +552,17 @@ static bool mpuWhoAmI(uint8_t addr, uint8_t &who) {
   Wire.write(0x75);
   const uint8_t tx = Wire.endTransmission(true);
   if (tx != 0) {
-    Serial.printf("[node-a] MPU-6050 0x%02X write err %u\n", addr, tx);
+    FASerial.printf("[node-a] MPU-6050 0x%02X write err %u\n", addr, tx);
     return false;
   }
   delay(2);
   const uint8_t got = Wire.requestFrom(addr, static_cast<uint8_t>(1), static_cast<uint8_t>(true));
   if (got != 1) {
-    Serial.printf("[node-a] MPU-6050 0x%02X whoami bytes %u\n", addr, got);
+    FASerial.printf("[node-a] MPU-6050 0x%02X whoami bytes %u\n", addr, got);
     return false;
   }
   who = static_cast<uint8_t>(Wire.read());
-  Serial.printf("[node-a] MPU-6050 0x%02X whoami 0x%02X\n", addr, who);
+  FASerial.printf("[node-a] MPU-6050 0x%02X whoami 0x%02X\n", addr, who);
   return who == 0x68 || who == 0x70 || who == 0x71 || who == 0x98;
 }
 
@@ -591,7 +592,7 @@ static void reportPin(int pin) {
   pinMode(pin, INPUT_PULLUP);
   delay(2);
   const int released = digitalRead(pin);
-  Serial.printf("[node-a] GPIO %d driven low reads %d, released reads %d\n", pin, low, released);
+  FASerial.printf("[node-a] GPIO %d driven low reads %d, released reads %d\n", pin, low, released);
 }
 
 static void restoreBmeBus() {
@@ -626,16 +627,16 @@ static bool mpuAdopt(uint8_t addr, int sda, int scl) {
   g_bme688Wire.beginTransmission(addr);
   g_bme688Wire.write(0x75);
   if (g_bme688Wire.endTransmission(true) != 0) {
-    Serial.printf("[node-a] MPU-6050 0x%02X whoami write failed\n", addr);
+    FASerial.printf("[node-a] MPU-6050 0x%02X whoami write failed\n", addr);
     return false;
   }
   delay(2);
   if (g_bme688Wire.requestFrom(addr, static_cast<uint8_t>(1), static_cast<uint8_t>(true)) != 1) {
-    Serial.printf("[node-a] MPU-6050 0x%02X whoami empty\n", addr);
+    FASerial.printf("[node-a] MPU-6050 0x%02X whoami empty\n", addr);
     return false;
   }
   const uint8_t who = static_cast<uint8_t>(g_bme688Wire.read());
-  Serial.printf("[node-a] MPU-6050 0x%02X whoami 0x%02X\n", addr, who);
+  FASerial.printf("[node-a] MPU-6050 0x%02X whoami 0x%02X\n", addr, who);
   if (who != 0x68 && who != 0x70 && who != 0x71 && who != 0x98) return false;
   g_mpuAddr = addr;
   g_mpuSda = sda;
@@ -645,7 +646,7 @@ static bool mpuAdopt(uint8_t addr, int sda, int scl) {
   g_bme688Wire.write(0x6B);
   g_bme688Wire.write(0x00);
   if (g_bme688Wire.endTransmission() != 0) {
-    Serial.println("[node-a] MPU-6050 wake failed");
+    FASerial.println("[node-a] MPU-6050 wake failed");
     g_mpuHw = false;
     return false;
   }
@@ -658,20 +659,20 @@ static bool mpuAdopt(uint8_t addr, int sda, int scl) {
   g_bme688Wire.write(0x1C);
   g_bme688Wire.write(0x00);
   g_bme688Wire.endTransmission();
-  Serial.printf("[node-a] MPU-6050 ready at 0x%02X on SDA=%d SCL=%d\n", addr, sda, scl);
+  FASerial.printf("[node-a] MPU-6050 ready at 0x%02X on SDA=%d SCL=%d\n", addr, sda, scl);
   return true;
 }
 
 static bool tryHwPair(int sda, int scl, int tries) {
   if (!wire1Begin(sda, scl)) {
-    Serial.printf("[node-a] MPU-6050 hardware bus failed SDA=%d SCL=%d\n", sda, scl);
+    FASerial.printf("[node-a] MPU-6050 hardware bus failed SDA=%d SCL=%d\n", sda, scl);
     return false;
   }
   delay(30);
   const uint8_t candidates[] = {MPU6050_I2C_ADDR, 0x69};
   for (uint8_t addr : candidates) {
     if (!mpuPingReady(addr, tries)) {
-      Serial.printf("[node-a] MPU-6050 0x%02X no ack on SDA=%d SCL=%d\n", addr, sda, scl);
+      FASerial.printf("[node-a] MPU-6050 0x%02X no ack on SDA=%d SCL=%d\n", addr, sda, scl);
       continue;
     }
     if (mpuAdopt(addr, sda, scl)) return true;
@@ -693,9 +694,9 @@ static bool trySoftPair(int sda, int scl) {
   delay(2);
   const int sdaLevel = digitalRead(sda);
   const int sclLevel = digitalRead(scl);
-  Serial.printf("[node-a] MPU SDA=%d reads %d, SCL=%d reads %d\n", sda, sdaLevel, scl, sclLevel);
+  FASerial.printf("[node-a] MPU SDA=%d reads %d, SCL=%d reads %d\n", sda, sdaLevel, scl, sclLevel);
   if (sdaLevel == LOW || sclLevel == LOW) {
-    Serial.println("[node-a] MPU-6050 data line held low");
+    FASerial.println("[node-a] MPU-6050 data line held low");
     return false;
   }
   const uint8_t candidates[] = {MPU6050_I2C_ADDR, 0x69};
@@ -704,18 +705,18 @@ static bool trySoftPair(int sda, int scl) {
     for (uint8_t addr : candidates) {
       uint8_t who = 0;
       if (!mpuSoftRead(addr, 0x75, &who, 1, attempt == 3)) continue;
-      Serial.printf("[node-a] MPU-6050 0x%02X whoami 0x%02X\n", addr, who);
+      FASerial.printf("[node-a] MPU-6050 0x%02X whoami 0x%02X\n", addr, who);
       if (who != 0x68 && who != 0x70 && who != 0x71 && who != 0x98) continue;
       g_mpuAddr = addr;
       g_mpuHw = false;
       if (!mpuWrite(0x6B, 0x00)) {
-        Serial.println("[node-a] MPU-6050 wake failed");
+        FASerial.println("[node-a] MPU-6050 wake failed");
         continue;
       }
       delay(10);
       mpuWrite(0x1B, 0x00);
       mpuWrite(0x1C, 0x00);
-      Serial.printf("[node-a] MPU-6050 ready at 0x%02X on SDA=%d SCL=%d\n", addr, sda, scl);
+      FASerial.printf("[node-a] MPU-6050 ready at 0x%02X on SDA=%d SCL=%d\n", addr, sda, scl);
       return true;
     }
   }
@@ -726,7 +727,7 @@ static bool beginMpu6050(bool restartBus) {
   if (!MPU6050_ENABLED) return false;
   if (MPU6050_SEPARATE_I2C_BUS) {
     const bool ready = trySoftPair(MPU6050_I2C_SDA_PIN, MPU6050_I2C_SCL_PIN);
-    if (!ready) Serial.println("[node-a] MPU-6050 not found");
+    if (!ready) FASerial.println("[node-a] MPU-6050 not found");
     return ready;
   }
   if (restartBus) {
@@ -741,18 +742,18 @@ static bool beginMpu6050(bool restartBus) {
       if (!mpuWhoAmI(addr, who)) continue;
       g_mpuAddr = addr;
       if (!mpuWrite(0x6B, 0x00)) {
-        Serial.println("[node-a] MPU-6050 wake failed");
+        FASerial.println("[node-a] MPU-6050 wake failed");
         continue;
       }
       delay(10);
       mpuWrite(0x1B, 0x00);
       mpuWrite(0x1C, 0x00);
-      Serial.printf("[node-a] MPU-6050 ready at 0x%02X\n", addr);
+      FASerial.printf("[node-a] MPU-6050 ready at 0x%02X\n", addr);
       return true;
     }
     delay(15);
   }
-  Serial.println("[node-a] MPU-6050 not found");
+  FASerial.println("[node-a] MPU-6050 not found");
   return false;
 }
 
@@ -781,7 +782,7 @@ static bool readMpuSample(WearableReadings &out) {
   if (MPU6050_SEPARATE_I2C_BUS && g_mpuHw) {
     if (!wire1Begin(g_mpuSda, g_mpuScl)) return false;
     if (!mpuPingReady(g_mpuAddr, 8)) {
-      Serial.printf("[node-a] MPU-6050 0x%02X not answering for sample\n", g_mpuAddr);
+      FASerial.printf("[node-a] MPU-6050 0x%02X not answering for sample\n", g_mpuAddr);
       return false;
     }
     static bool woke = false;
@@ -855,7 +856,7 @@ static void readMpu6050(WearableReadings &out) {
   if (g_mpuHw) restoreBmeBus();
   if (got) return;
   publishLastMpu(out);
-  if (!out.mpu6050) Serial.println("[node-a] MPU-6050 read missed");
+  if (!out.mpu6050) FASerial.println("[node-a] MPU-6050 read missed");
 }
 
 static void readMq6(WearableReadings &out) {
@@ -868,7 +869,7 @@ static void readMq6(WearableReadings &out) {
                                          
 static void readGps(WearableReadings &out) {
   if (GPS_ENABLED) {
-    Serial.println("[node-a] GPS flag is on but the driver is not linked");
+    FASerial.println("[node-a] GPS flag is on but the driver is not linked");
   }
   // When a fix is parsed, store it in g_last* and set gps_fix.
   // After loss of fix, report last-known separately — never as the current position.
@@ -896,7 +897,7 @@ static void readBattery(WearableReadings &out) {
 
 static void scanMpuBus() {
   mpuBusInit();
-  Serial.printf("[node-a] I2C scan MPU-6050 SDA=%d SCL=%d\n", g_mpuSda, g_mpuScl);
+  FASerial.printf("[node-a] I2C scan MPU-6050 SDA=%d SCL=%d\n", g_mpuSda, g_mpuScl);
   uint8_t found = 0;
   for (uint8_t addr = 1; addr < 127; ++addr) {
     mpuStart();
@@ -904,9 +905,9 @@ static void scanMpuBus() {
     mpuStop();
     if (!ack) continue;
     ++found;
-    Serial.printf("[node-a]   found 0x%02X\n", addr);
+    FASerial.printf("[node-a]   found 0x%02X\n", addr);
   }
-  if (found == 0) Serial.println("[node-a]   no device answered");
+  if (found == 0) FASerial.println("[node-a]   no device answered");
 }
 
 static void runSensorScan() {
@@ -919,28 +920,28 @@ static void runSensorScan() {
 
 static void scanI2C(TwoWire &bus, int sda, int scl, const char *label) {
   bus.begin(sda, scl, I2C_FREQUENCY_HZ);
-  Serial.printf("[node-a] I2C scan %s SDA=%d SCL=%d\n", label, sda, scl);
+  FASerial.printf("[node-a] I2C scan %s SDA=%d SCL=%d\n", label, sda, scl);
   uint8_t found = 0;
   for (uint8_t addr = 1; addr < 127; ++addr) {
     bus.beginTransmission(addr);
     if (bus.endTransmission() == 0) {
       ++found;
-      Serial.printf("[node-a]   found 0x%02X\n", addr);
+      FASerial.printf("[node-a]   found 0x%02X\n", addr);
     }
   }
   if (found == 0) {
-    Serial.println("[node-a]   no device answered");
+    FASerial.println("[node-a]   no device answered");
   }
 }
 
 void featuresBegin() {
   if (loadWifiCreds(g_wifi)) {
-    Serial.printf("[node-a] router from device memory: %s\n", g_wifi.ssid);
+    FASerial.printf("[node-a] router from device memory: %s\n", g_wifi.ssid);
   } else if (!wifiNameIsPlaceholder()) {
     rememberWifi(WIFI_SSID, WIFI_PASSWORD);
-    Serial.printf("[node-a] router from config.h fallback: %s\n", g_wifi.ssid);
+    FASerial.printf("[node-a] router from config.h fallback: %s\n", g_wifi.ssid);
   } else {
-    Serial.println("[node-a] no router yet — enter it on the dashboard");
+    FASerial.println("[node-a] no router yet — enter it on the dashboard");
   }
 
   if (CANCEL_BUTTON_ENABLED) {
@@ -955,24 +956,24 @@ void featuresBegin() {
     g_mpu6050Ready = beginMpu6050(false);
   }
   if (!i2cLinesIdle(I2C_SDA_PIN, I2C_SCL_PIN, "GPIO 8/9")) {
-    Serial.println("[node-a] GPIO 8/9 looked busy, trying the SCD40 anyway");
+    FASerial.println("[node-a] GPIO 8/9 looked busy, trying the SCD40 anyway");
   }
   if (!MPU6050_SEPARATE_I2C_BUS) g_mpu6050Ready = beginMpu6050(true);
   g_scd40Ready = beginScd40();
   if (!i2cLinesIdle(BME688_I2C_SDA_PIN, BME688_I2C_SCL_PIN, "GPIO 17/18")) {
-    Serial.println("[node-a] GPIO 17/18 looked busy, trying the BME688 anyway");
+    FASerial.println("[node-a] GPIO 17/18 looked busy, trying the BME688 anyway");
   }
   g_bme688Ready = beginBme688();
   if (MQ6_ENABLED) {
     analogReadResolution(12);
     analogSetPinAttenuation(MQ6_ADC_PIN, ADC_11db);
     pinMode(MQ6_ADC_PIN, INPUT);
-    Serial.printf("[node-a] MQ-6 ADC GPIO %d\n", MQ6_ADC_PIN);
+    FASerial.printf("[node-a] MQ-6 ADC GPIO %d\n", MQ6_ADC_PIN);
   }
-  Serial.printf("[node-a] placeholders bme=%d max30102=%d mpu=%d gps=%d battery=%d screen=%d buzzer=%d ecdsa=%d model=%s\n",
+  FASerial.printf("[node-a] placeholders bme=%d max30102=%d mpu=%d gps=%d battery=%d screen=%d buzzer=%d ecdsa=%d model=%s\n",
                 BME688_ENABLED, MAX30102_ENABLED, MPU6050_ENABLED, GPS_ENABLED, BATTERY_SENSE_ENABLED,
                 TOUCHSCREEN_INSTALLED, BUZZER_INSTALLED, ECDSA_SIGNING_ENABLED, FALL_MODEL_ID);
-  Serial.println("[node-a] serial command: fall");
+  FASerial.println("[node-a] serial command: fall");
 }
 
 static void retryMissingSensors() {
@@ -983,15 +984,15 @@ static void retryMissingSensors() {
   if (lastMs != 0 && now - lastMs < 30000) return;
   lastMs = now;
   if (MPU6050_ENABLED && !g_mpu6050Ready) {
-    Serial.println("[node-a] retrying MPU-6050");
+    FASerial.println("[node-a] retrying MPU-6050");
     g_mpu6050Ready = beginMpu6050(false);
   }
   if (!g_scd40Ready && SCD40_ENABLED) {
-    Serial.println("[node-a] retrying SCD40 (optional)");
+    FASerial.println("[node-a] retrying SCD40 (optional)");
     g_scd40Ready = beginScd40();
   }
   if (BME688_ENABLED && !g_bme688Ready) {
-    Serial.println("[node-a] retrying BME688 (optional)");
+    FASerial.println("[node-a] retrying BME688 (optional)");
     g_bme688Ready = beginBme688();
   }
 }
@@ -1086,6 +1087,6 @@ bool featuresSign(TelemetryPacket &packet) {
   }
   // Provision a P-256 key locally, SHA-256 the bytes before signature_len,
   // and store a DER signature. Do not commit the private key.
-  Serial.println("[node-a] ECDSA enabled but no key is compiled in");
+  FASerial.println("[node-a] ECDSA enabled but no key is compiled in");
   return false;
 }

@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "config.h"
+#include "dual_serial.h"
 #include "ei_activity.h"
 #include "features.h"
 #include "telemetry.h"
@@ -22,8 +23,8 @@ static void onEspNowSent(const uint8_t *mac, esp_now_send_status_t status) {
   (void)mac;
 #endif
   g_lastSendOk = status == ESP_NOW_SEND_SUCCESS;
-  Serial.print("[node-a] ESP-NOW send ");
-  Serial.println(g_lastSendOk ? "OK" : "FAIL");
+  FASerial.print("[node-a] ESP-NOW send ");
+  FASerial.println(g_lastSendOk ? "OK" : "FAIL");
 }
 
 static void setMaxRadioPower() {
@@ -44,7 +45,7 @@ static bool ensureWifiChannel() {
     const uint8_t ch = static_cast<uint8_t>(WiFi.channel());
     if (ch != g_homeChannel) {
       g_homeChannel = ch;
-      Serial.printf("[node-a] Wi-Fi channel now %u\n", g_homeChannel);
+      FASerial.printf("[node-a] Wi-Fi channel now %u\n", g_homeChannel);
     }
     return true;
   }
@@ -54,7 +55,7 @@ static bool ensureWifiChannel() {
   if (lastBeginMs == 0 || now - lastBeginMs >= 15000) {
     lastBeginMs = now;
     WiFi.begin(wearableWifiSsid(), wearableWifiPassword());
-    Serial.println("[node-a] Wi-Fi join kicked (non-blocking)");
+    FASerial.println("[node-a] Wi-Fi join kicked (non-blocking)");
   }
   return false;
 }
@@ -72,7 +73,7 @@ static bool ensureWifiChannelBlockingBoot() {
   }
   if (WiFi.status() != WL_CONNECTED) return false;
   g_homeChannel = static_cast<uint8_t>(WiFi.channel());
-  Serial.printf("[node-a] channel lock via Wi-Fi  IP=%s  channel=%u\n", WiFi.localIP().toString().c_str(),
+  FASerial.printf("[node-a] channel lock via Wi-Fi  IP=%s  channel=%u\n", WiFi.localIP().toString().c_str(),
                 g_homeChannel);
   return true;
 }
@@ -87,20 +88,20 @@ static bool initEspNow() {
   if (ensureWifiChannelBlockingBoot()) {
     // Stay associated so ESP-NOW tracks the AP channel the gateway uses.
   } else if (wearableWifiConfigured()) {
-    Serial.println("[node-a] Wi-Fi join failed; locking ESP-NOW channel manually");
+    FASerial.println("[node-a] Wi-Fi join failed; locking ESP-NOW channel manually");
     lockEspNowChannel(WIFI_CHANNEL);
   } else {
-    Serial.printf("[node-a] no Wi-Fi configured; locking ESP-NOW channel %u\n", WIFI_CHANNEL);
+    FASerial.printf("[node-a] no Wi-Fi configured; locking ESP-NOW channel %u\n", WIFI_CHANNEL);
     lockEspNowChannel(WIFI_CHANNEL);
   }
 
-  Serial.print("[node-a] STA MAC=");
-  Serial.println(WiFi.macAddress());
-  Serial.printf("[node-a] ESP-NOW channel %u  packet %u bytes\n", g_homeChannel,
+  FASerial.print("[node-a] STA MAC=");
+  FASerial.println(WiFi.macAddress());
+  FASerial.printf("[node-a] ESP-NOW channel %u  packet %u bytes\n", g_homeChannel,
                 static_cast<unsigned>(sizeof(TelemetryPacket)));
 
   if (esp_now_init() != ESP_OK) {
-    Serial.println("[node-a] esp_now_init failed");
+    FASerial.println("[node-a] esp_now_init failed");
     return false;
   }
   esp_now_register_send_cb(onEspNowSent);
@@ -111,7 +112,7 @@ static bool initEspNow() {
   peer.encrypt = false;
   peer.ifidx = WIFI_IF_STA;
   if (!esp_now_is_peer_exist(NODE_B_MAC) && esp_now_add_peer(&peer) != ESP_OK) {
-    Serial.println("[node-a] esp_now_add_peer failed");
+    FASerial.println("[node-a] esp_now_add_peer failed");
     return false;
   }
   return true;
@@ -133,7 +134,7 @@ static void sendPacket(const TelemetryPacket &packet) {
     const esp_err_t sendResult =
         esp_now_send(NODE_B_MAC, reinterpret_cast<const uint8_t *>(&packet), sizeof(packet));
     if (sendResult != ESP_OK) {
-      Serial.printf("[node-a] esp_now_send err %d (try %u)\n", static_cast<int>(sendResult), attempt);
+      FASerial.printf("[node-a] esp_now_send err %d (try %u)\n", static_cast<int>(sendResult), attempt);
       delay(15);
       continue;
     }
@@ -212,14 +213,14 @@ static void fillPacket(TelemetryPacket &packet, const WearableReadings &in) {
 }
 
 void setup() {
-  Serial.begin(115200);
+  firealertSerialBegin(115200);
   delay(1500);
-  Serial.println();
-  Serial.println("[node-a] FIREALERT wearable boot");
+  FASerial.println();
+  FASerial.println("[node-a] FIREALERT wearable boot");
   featuresBegin();
   featuresRefreshEnvironment();
   if (!initEspNow()) {
-    Serial.println("[node-a] ESP-NOW init failed — halt");
+    FASerial.println("[node-a] ESP-NOW init failed — halt");
     while (true) {
       delay(1000);
     }
@@ -246,11 +247,11 @@ void loop() {
   if (now - lastLogMs >= 1000) {
     lastLogMs = now;
     if (readings.mpu6050) {
-      Serial.printf("[node-a] MPU-6050 g=%.2f %.2f %.2f dps=%.1f %.1f %.1f fall=%u act=%s(%.2f)\n",
+      FASerial.printf("[node-a] MPU-6050 g=%.2f %.2f %.2f dps=%.1f %.1f %.1f fall=%u act=%s(%.2f)\n",
                     readings.accel_x, readings.accel_y, readings.accel_z, readings.gyro_x, readings.gyro_y,
                     readings.gyro_z, readings.fall_state, eiActivityLabel(), eiActivityScore());
     } else {
-      Serial.println("[node-a] MPU-6050 no reading");
+      FASerial.println("[node-a] MPU-6050 no reading");
     }
   }
 
