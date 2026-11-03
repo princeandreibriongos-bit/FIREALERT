@@ -5,7 +5,7 @@ type Props = {
   priority?: boolean;
 };
 
-/** Served from station/public/logo.jpg */
+/** Served from capstone/public/logo.jpg */
 export function StationLogo({ size = 48, className = "", alt = "Bureau of Fire Protection — Makati City", priority = false }: Props) {
   return (
     // eslint-disable-next-line @next/next/no-img-element

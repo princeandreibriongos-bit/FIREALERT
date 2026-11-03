@@ -7,7 +7,7 @@ config({ path: ".env" });
 // Migrations use the direct (unpooled) Neon URL per Neon postgres guidance.
 const url = (process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL || "").trim();
 if (!url) {
-  throw new Error("Set DATABASE_URL_UNPOOLED or DATABASE_URL in station/.env.local (neon env pull)");
+  throw new Error("Set DATABASE_URL_UNPOOLED or DATABASE_URL in capstone/.env.local (neon env pull)");
 }
 
 export default defineConfig({

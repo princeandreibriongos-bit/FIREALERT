@@ -11,7 +11,7 @@ const username = args[0];
 const password = args[1];
 
 if (!databaseUrl()) {
-  console.error("DATABASE_URL is not set. Add it to station/.env.local first.");
+  console.error("DATABASE_URL is not set. Add it to capstone/.env.local first.");
   process.exit(1);
 }
 

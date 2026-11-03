@@ -4,7 +4,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   serverExternalPackages: ["pg"],
-  // This app is station/. Neon keeps its own lockfile in the parent repo.
+  // This folder is the whole board. It does not use the parent repo or XAMPP.
   outputFileTracingRoot: path.join(__dirname),
   turbopack: {
     root: path.join(__dirname),

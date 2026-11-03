@@ -1,7 +1,7 @@
 /**
  * Export MPU-6050 samples from Neon into a labeled CSV for Edge Impulse / HAR.
  *
- * Examples (run from station/):
+ * Examples (run from capstone/):
  *   npm run dataset:list
  *   npm run dataset:export -- --label idle --last 3m
  *   npm run dataset:export -- --label walk --from "2026-10-31 16:00" --to "2026-10-31 16:03"
@@ -16,10 +16,10 @@ import { config } from "dotenv";
 import { neon } from "@neondatabase/serverless";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-const webRoot = resolve(scriptDir, "..");
-const repoRoot = resolve(webRoot, "..");
-config({ path: join(webRoot, ".env.local") });
-config({ path: join(webRoot, ".env") });
+const appRoot = resolve(scriptDir, "..");
+const repoRoot = appRoot;
+config({ path: join(appRoot, ".env.local") });
+config({ path: join(appRoot, ".env") });
 
 type Args = {
   label: string;
@@ -180,7 +180,7 @@ async function listRecent(sql: ReturnType<typeof neon>, limit: number) {
 async function exportCsv(args: Args) {
   const url = (process.env.DATABASE_URL || "").trim();
   if (!url) {
-    console.error("DATABASE_URL missing. Put it in station/.env.local (neon env pull).");
+    console.error("DATABASE_URL missing. Put it in capstone/.env.local (neon env pull).");
     process.exit(1);
   }
   const sql = neon(url);

@@ -193,7 +193,7 @@ export function diagnoseGateway(link: GatewayLink | null, now: number, activeSsi
       likely: "usb",
       steps: [
         "Leave the gateway powered and on the same 2.4 GHz router.",
-        "On the computer plugged into Node B, stop the old bridge window and run npm run bridge from station/ again. That window copies each heartbeat to the hosted board, which is what turns this page live.",
+        "On the computer plugged into Node B, stop the old bridge window and run npm run bridge from capstone/ again. That window copies each heartbeat to the hosted board, which is what turns this page live.",
         "A quiet link is not a wrong-password result. Wait for a new heartbeat before changing the Wi-Fi name.",
       ],
     };
@@ -209,7 +209,7 @@ export function diagnoseGateway(link: GatewayLink | null, now: number, activeSsi
       likely: "usb",
       steps: [
         "Plug the gateway (Node B) into this computer over USB.",
-        "In station/, run npm run bridge and leave that window open. It auto-finds the gateway COM port and copies heartbeats to the hosted board.",
+        "In capstone/, run npm run bridge and leave that window open. It auto-finds the gateway COM port and copies heartbeats to the hosted board.",
         "Confirm the bridge window prints the chosen port and heartbeat or joining lines.",
         "Only after heartbeats appear should you treat Wi-Fi name/password as the suspect.",
       ],
