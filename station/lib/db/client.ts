@@ -24,7 +24,7 @@ function neonHost(url: string): boolean {
 
 export function getDb() {
   const url = databaseUrl();
-  if (!url) throw new Error("DATABASE_URL is not set (run neon env pull into web/.env.local)");
+  if (!url) throw new Error("DATABASE_URL is not set (run neon env pull into station/.env.local)");
   if (!db) {
     if (neonHost(url)) {
       // HTTP neon() driver fits Next.js route handlers / Vercel serverless.

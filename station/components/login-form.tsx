@@ -52,7 +52,7 @@ export function LoginForm({ configured }: { configured: boolean }) {
         {!configured ? (
           <p className="warn-text">
             Auth is not ready on this server. Set <code>DATABASE_URL</code> and <code>SESSION_SECRET</code> in{" "}
-            <code>web/.env.local</code>, run <code>npm run db:push</code>, then <code>npm run user:create</code>.
+            <code>station/.env.local</code>, run <code>npm run db:push</code>, then <code>npm run user:create</code>.
           </p>
         ) : (
           <form className="form" autoComplete="off" noValidate onSubmit={submit}>

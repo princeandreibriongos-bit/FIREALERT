@@ -6,7 +6,7 @@ import { getDb } from "../lib/db/client";
 import { crewMembers, localNodes } from "../lib/db/schema";
 
 if (!(process.env.DATABASE_URL || "").trim()) {
-  console.error("DATABASE_URL is not set in web/.env.local");
+  console.error("DATABASE_URL is not set in station/.env.local");
   process.exit(1);
 }
 

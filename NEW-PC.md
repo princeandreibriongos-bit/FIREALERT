@@ -10,7 +10,7 @@ This is a capstone prototype for New Makati Central Fire Station. It is not prot
 | --- | --- | --- |
 | Node A, wearable | ESP32-S3-DevKitC-1. Wearer id `FF-01`. USB serial number `B8:1F:3F:D8:18:EC` | ESP-NOW to the gateway. Wi-Fi is only used to learn the gateway's channel |
 | Node B, gateway | ESP32-S3-DevKitC-1. USB serial number `14:C1:9F:C8:57:D8` | Receives ESP-NOW, joins Wi-Fi, prints JSON on USB |
-| Web board | Next.js app in `web/` | `http://localhost:3000`. XAMPP/Apache does not serve this app |
+| Web board | Next.js app in `station/` | `http://localhost:3000`. XAMPP/Apache does not serve this app |
 
 COM port numbers change on every PC. Identify the boards by the USB serial number above, not by COM5 or COM6. Native-USB DevKits show up as USB Serial Device, VID `303A`, PID `1001`. Some kits (including replacements) use a WCH **CH343** bridge instead (`VID 1A86`, `PID 55D3`) — `npm run bridge` accepts those too. Prefer the port that prints `[node-b]` heartbeats.
 
@@ -22,7 +22,7 @@ ESP-NOW only works when both radios are on the same channel. The wearable learns
 
 1. Git.
 2. Node.js 20 or newer.
-3. Python 3. Then, from `web/`:
+3. Python 3. Then, from `station/`:
 
 ```powershell
 python -m pip install pyserial platformio
@@ -34,7 +34,7 @@ PowerShell does not accept `&&`. Run commands one at a time, or separate them wi
 
 ## Run the board
 
-From `web/`:
+From `station/`:
 
 ```powershell
 npm install
@@ -44,13 +44,13 @@ npm run dev
 
 Leave that window open. `http://localhost:3000` refuses the connection when the dev server is not running. The server listens on `0.0.0.0:3000`.
 
-Plug in the gateway. In a second window, from `web/`:
+Plug in the gateway. In a second window, from `station/`:
 
 ```powershell
 npm run bridge
 ```
 
-`npm run bridge` uses the Windows `py -3` launcher (not the Microsoft Store `python` stub). The bridge auto-detects Node B by USB serial (`14:C1:9F:C8:57:D8` when that board is used), by listening for `[node-b]` if both ESP32s are plugged in, and by remembering the last working port in `web/data/bridge-port.json`. COM numbers can change when you swap PCs or boards — you do not need to pass `COMx`. Optional override: `npm run bridge -- COM7` or `py -3 serial-bridge.py COM7`. If nothing is plugged in yet, the bridge waits and retries.
+`npm run bridge` uses the Windows `py -3` launcher (not the Microsoft Store `python` stub). The bridge auto-detects Node B by USB serial (`14:C1:9F:C8:57:D8` when that board is used), by listening for `[node-b]` if both ESP32s are plugged in, and by remembering the last working port in `station/data/bridge-port.json`. COM numbers can change when you swap PCs or boards — you do not need to pass `COMx`. Optional override: `npm run bridge -- COM7` or `py -3 serial-bridge.py COM7`. If nothing is plugged in yet, the bridge waits and retries.
 
 If `python` alone opens the Microsoft Store, turn off **Settings → Apps → Advanced app settings → App execution aliases → python.exe / python3.exe**, or keep using `npm run bridge` / `py -3`.
 
@@ -62,7 +62,7 @@ The bridge also sends the active Wi-Fi name to the gateway and to the other ESP3
 
 Open **Gateway** on the board (`/gateway`).
 
-- **Room router** and **Phone hotspot** are stored separately in `web/data/network.json`.
+- **Room router** and **Phone hotspot** are stored separately in `station/data/network.json`.
 - Saving one does not erase the other.
 - The active one is what the bridge sends to the devices.
 - **Use room router** switches back to the saved router without retyping it.
@@ -132,7 +132,7 @@ Do not turn these flags on until the part is wired and a driver is linked. They 
 
 ## Rules for the next session
 
-- Do not commit `web/data/network.json`, `.env` files, or anything under `.pio/` or `web/.next/`.
+- Do not commit `station/data/network.json`, `.env` files, or anything under `.pio/` or `station/.next/`.
 - Do not put Wi-Fi passwords in `config.h`.
 - Do not point the USB bridge at the wearable port. The bridge's main port is the gateway. It opens the wearable only long enough to send the Wi-Fi line.
 - A green gateway with no wearable packets is a channel mismatch until proven otherwise. Check the Gateway page for the gateway channel, then the wearable serial line `ESP-NOW channel`.

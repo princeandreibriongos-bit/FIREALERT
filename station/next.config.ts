@@ -4,7 +4,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   serverExternalPackages: ["pg"],
-  // Keep this app rooted on web/ even though Neon created a lockfile in the parent folder.
+  // This app is station/. Neon keeps its own lockfile in the parent repo.
   outputFileTracingRoot: path.join(__dirname),
   turbopack: {
     root: path.join(__dirname),

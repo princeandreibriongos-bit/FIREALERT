@@ -7,7 +7,7 @@ import bcrypt from "bcryptjs";
 
 async function main() {
   const url = (process.env.DATABASE_URL || "").trim();
-  if (!url) throw new Error("DATABASE_URL missing in web/.env.local");
+  if (!url) throw new Error("DATABASE_URL missing in station/.env.local");
 
   const sql = neon(url);
   const ping = await sql`select current_database() as db, now() as at`;
