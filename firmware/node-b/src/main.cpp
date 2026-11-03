@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
@@ -26,10 +27,15 @@ static uint32_t g_phaseMs = 0;
 static uint8_t g_candidate[WIFI_SLOTS] = {};
 static uint8_t g_candidateCount = 0;
 static uint8_t g_candidatePos = 0;
+static uint8_t g_slotChannel[WIFI_SLOTS] = {};
+static uint8_t g_slotBssid[WIFI_SLOTS][6] = {};
+static bool g_slotHaveBssid[WIFI_SLOTS] = {};
 static bool g_channelHeld = false;
 static bool g_recheck = false;
 static char g_trying[33] = "-";
 static char g_detail[40] = "boot";
+static uint32_t g_mismatchSince = 0;
+static uint32_t g_linkBackoffUntilMs = 0;
 
 static const char *phaseName(WifiPhase phase) {
   switch (phase) {
@@ -83,7 +89,6 @@ static const char *joinFailDetail(wl_status_t status) {
 static constexpr size_t QUEUE_DEPTH = 32;
 static constexpr size_t PACKET_MAX = 250;
 /** After a failed Wi-Fi POST, skip HTTP for a while — USB serial already delivered the packet. */
-static uint32_t g_httpBackoffUntilMs = 0;
 
 struct QueuedPacket {
   uint8_t data[PACKET_MAX];
@@ -187,6 +192,24 @@ static void holdFallbackChannel() {
   FASerial.printf("[node-b] Wi-Fi down; ESP-NOW stays on channel %u until a saved network answers\n", WIFI_CHANNEL);
 }
 
+// ESP32 often reports a blank SSID for a moment after associating. A blank
+// reading is the network we just requested, not a different router.
+static bool ssidMatchesJoin() {
+  const String joined = WiFi.SSID();
+  if (joined.length() == 0 || g_wifi.ssid[0] == '\0') return true;
+  return joined == g_wifi.ssid;
+}
+
+static bool foreignNetworkStuck() {
+  if (ssidMatchesJoin()) {
+    g_mismatchSince = 0;
+    return false;
+  }
+  const uint32_t now = millis();
+  if (g_mismatchSince == 0) g_mismatchSince = now;
+  return now - g_mismatchSince >= 4000;
+}
+
 static void beginJoin(uint8_t index, bool force) {
   if (index >= g_book.count) return;
   copySlot(index);
@@ -202,11 +225,20 @@ static void beginJoin(uint8_t index, bool force) {
     return;
   }
   WiFi.disconnect(false, false);
-  WiFi.begin(g_wifi.ssid, g_wifi.password);
+  const uint8_t channel = g_slotChannel[index];
+  // A scan leaves the radio off the AP channel. begin() without that channel
+  // returns WL_NO_SSID_AVAIL (status 1) even when the name was just seen.
+  if (channel > 0 && g_slotHaveBssid[index]) {
+    WiFi.begin(g_wifi.ssid, g_wifi.password, channel, g_slotBssid[index]);
+  } else if (channel > 0) {
+    WiFi.begin(g_wifi.ssid, g_wifi.password, channel);
+  } else {
+    WiFi.begin(g_wifi.ssid, g_wifi.password);
+  }
   g_phase = WifiPhase::Connecting;
   g_phaseMs = millis();
   setDetail("connecting");
-  FASerial.printf("[node-b] joining %s\n", g_wifi.ssid);
+  FASerial.printf("[node-b] joining %s ch=%u\n", g_wifi.ssid, channel);
 }
 
 static void armPreferred(bool force) {
@@ -220,14 +252,29 @@ static void armPreferred(bool force) {
 static void queueVisible(int found) {
   bool seen[WIFI_SLOTS] = {};
   int32_t rssi[WIFI_SLOTS];
+  memset(g_slotChannel, 0, sizeof(g_slotChannel));
+  memset(g_slotHaveBssid, 0, sizeof(g_slotHaveBssid));
   for (uint8_t i = 0; i < WIFI_SLOTS; i++) rssi[i] = -127;
+  FASerial.print("[node-b] scan:");
   for (int i = 0; i < found; i++) {
+    FASerial.print(' ');
+    FASerial.print(WiFi.SSID(i));
+    FASerial.print('@');
+    FASerial.print(WiFi.channel(i));
     const int8_t slot = slotForSsid(WiFi.SSID(i).c_str());
     if (slot < 0) continue;
     seen[slot] = true;
     const int32_t level = WiFi.RSSI(i);
-    if (level > rssi[slot]) rssi[slot] = level;
+    if (level <= rssi[slot]) continue;
+    rssi[slot] = level;
+    g_slotChannel[slot] = static_cast<uint8_t>(WiFi.channel(i));
+    const uint8_t *bssid = WiFi.BSSID(i);
+    if (bssid != nullptr) {
+      memcpy(g_slotBssid[slot], bssid, 6);
+      g_slotHaveBssid[slot] = true;
+    }
   }
+  FASerial.println();
   WiFi.scanDelete();
 
   uint8_t rest[WIFI_SLOTS];
@@ -250,7 +297,6 @@ static void queueVisible(int found) {
   g_candidatePos = 0;
   if (g_book.count > 0 && seen[g_book.preferred]) g_candidate[g_candidateCount++] = g_book.preferred;
   for (uint8_t i = 0; i < restCount; i++) g_candidate[g_candidateCount++] = rest[i];
-  if (g_book.count > 0 && !seen[g_book.preferred]) g_candidate[g_candidateCount++] = g_book.preferred;
 }
 
 static bool onPreferred() {
@@ -318,15 +364,21 @@ static void failJoin() {
 static void serviceWifi() {
   if (g_book.count == 0) return;
 
-  if (WiFi.status() == WL_CONNECTED && g_phase == WifiPhase::Connecting && WiFi.SSID() != g_wifi.ssid) {
-    if (millis() - g_phaseMs < WIFI_CONNECT_TIMEOUT_MS) return;
-    failJoin();
+  if (WiFi.status() == WL_CONNECTED && g_phase == WifiPhase::Connecting) {
+    if (!ssidMatchesJoin()) {
+      if (millis() - g_phaseMs < WIFI_CONNECT_TIMEOUT_MS) return;
+      failJoin();
+      return;
+    }
+    noteUp();
     return;
   }
 
   if (WiFi.status() == WL_CONNECTED && g_phase != WifiPhase::Scanning) {
-    if (WiFi.SSID().length() > 0 && WiFi.SSID() != g_wifi.ssid) {
+    if (foreignNetworkStuck()) {
+      FASerial.printf("[node-b] leaving %s; saved network is %s\n", WiFi.SSID().c_str(), g_wifi.ssid);
       WiFi.disconnect(false, false);
+      g_mismatchSince = 0;
       return;
     }
     noteUp();
@@ -532,12 +584,61 @@ static void addEmptySensors(JsonDocument &doc) {
   signature["hex"] = nullptr;
 }
 
-static String networkConfigUrl() {
+static String apiUrl(const char *path) {
   String url = TELEMETRY_URL;
   const int scheme = url.indexOf("://");
   const int slash = url.indexOf('/', scheme < 0 ? 0 : scheme + 3);
-  if (slash < 0) return url + "/api/network";
-  return url.substring(0, slash) + "/api/network";
+  if (slash < 0) return url + path;
+  return url.substring(0, slash) + path;
+}
+
+static String networkConfigUrl() {
+  return apiUrl("/api/network");
+}
+
+static bool postHostedLink(const String &body) {
+  WiFiClientSecure client;
+  client.setInsecure();
+  client.setTimeout(2);
+  HTTPClient http;
+  http.setTimeout(2000);
+  if (!http.begin(client, String(HOSTED_LINK_URL))) return false;
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("User-Agent", "FIREALERT-gateway");
+  http.addHeader("X-Firealert-Gateway", GATEWAY_ID);
+  const int status = http.POST(body);
+  http.end();
+  if (status < 200 || status >= 300) {
+    FASerial.printf("[node-b] hosted link HTTP %d\n", status);
+    return false;
+  }
+  return true;
+}
+
+static void postWifiLink() {
+  if (WiFi.status() != WL_CONNECTED || g_phase == WifiPhase::Connecting) return;
+  const uint32_t now = millis();
+  if (now < g_linkBackoffUntilMs) return;
+  static uint32_t lastMs = 0;
+  if (lastMs != 0 && now - lastMs < 10000) return;
+  lastMs = now;
+
+  JsonDocument doc;
+  doc["wifi"] = "up";
+  doc["ip"] = WiFi.localIP().toString();
+  doc["channel"] = WiFi.channel();
+  doc["mac"] = WiFi.macAddress();
+  doc["cellular"] = CELLULAR_MODEM_INSTALLED ? "ready" : "not-installed";
+  const char *ssid = g_joined[0] ? g_joined : g_wifi.ssid;
+  if (ssid[0] != '\0') doc["ssid"] = ssid;
+  doc["phase"] = phaseName(g_phase);
+  if (g_trying[0] != '\0' && strcmp(g_trying, "-") != 0) doc["trying"] = g_trying;
+  if (g_detail[0] != '\0' && strcmp(g_detail, "-") != 0) doc["detail"] = g_detail;
+
+  String body;
+  serializeJson(doc, body);
+  // The dashboard reads the hosted board, not the old LAN IP in TELEMETRY_URL.
+  if (!postHostedLink(body)) g_linkBackoffUntilMs = now + 20000;
 }
 
 static void loadRouter() {
@@ -636,39 +737,40 @@ static void pollDashboardRouter() {
   armPreferred(true);
 }
 
-static bool postDocument(JsonDocument &doc) {
-  doc["router_ssid"] = g_wifi.ssid[0] ? g_wifi.ssid : nullptr;
-  String body;
-  serializeJson(doc, body);
-  // Primary path for this lab: USB serial → npm run bridge → localhost.
-  // Always print first so a bad TELEMETRY_URL cannot stall the ESP-NOW queue.
-  FASerial.println(body);
-
-  if (WiFi.status() != WL_CONNECTED && !CELLULAR_MODEM_INSTALLED) {
-    return true;
-  }
-  if (millis() < g_httpBackoffUntilMs) {
-    return true;
-  }
-
+static void postHostedTelemetry(const String &body) {
+  static uint32_t nextMs = 0;
+  const uint32_t now = millis();
+  if (now < nextMs || WiFi.status() != WL_CONNECTED) return;
+  WiFiClientSecure client;
+  client.setInsecure();
+  client.setTimeout(2);
   HTTPClient http;
-  // Keep this short. An 8s timeout per packet made motion look like "1 packet / minute".
-  http.setTimeout(1200);
-  if (!http.begin(TELEMETRY_URL)) {
-    FASerial.println("[node-b] HTTP begin failed; USB bridge still has the packet");
-    g_httpBackoffUntilMs = millis() + 30000;
-    return true;
+  http.setTimeout(1500);
+  if (!http.begin(client, String(HOSTED_TELEMETRY_URL))) {
+    nextMs = now + 15000;
+    return;
   }
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("User-Agent", "FIREALERT-gateway");
   http.addHeader("X-Firealert-Gateway", GATEWAY_ID);
   const int status = http.POST(body);
   http.end();
   if (status >= 200 && status < 300) {
-    g_httpBackoffUntilMs = 0;
-    return true;
+    nextMs = now + 2000;
+    return;
   }
-  FASerial.printf("[node-b] POST %s -> HTTP %d (USB ok; pausing Wi-Fi POST 30s)\n", TELEMETRY_URL, status);
-  g_httpBackoffUntilMs = millis() + 30000;
+  FASerial.printf("[node-b] hosted telemetry HTTP %d\n", status);
+  nextMs = now + 15000;
+}
+
+static bool postDocument(JsonDocument &doc) {
+  doc["router_ssid"] = g_wifi.ssid[0] ? g_wifi.ssid : nullptr;
+  String body;
+  serializeJson(doc, body);
+  // USB print stays so a bridge can still forward. The hosted post is what
+  // keeps the board updating after that window is closed.
+  FASerial.println(body);
+  postHostedTelemetry(body);
   return true;
 }
 
@@ -876,6 +978,7 @@ void loop() {
   readRouterFromSerial();
   serviceWifi();
   pollDashboardRouter();
+  postWifiLink();
 
   static uint32_t lastBeatMs = 0;
   if (millis() - lastBeatMs >= 2000) {

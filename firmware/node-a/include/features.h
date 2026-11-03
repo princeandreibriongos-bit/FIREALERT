@@ -50,5 +50,9 @@ void featuresRefreshEnvironment();
 bool wearableWifiConfigured();
 const char *wearableWifiSsid();
 const char *wearableWifiPassword();
+/** Join the saved network, then the router compiled into config.h, then the saved one again. */
+void wearableWifiKick();
+/** Remember the compiled router after the radio actually joins it. */
+void wearableWifiNoteConnected();
 // Returns false while ECDSA_SIGNING_ENABLED is off. Packet stays unsigned.
 bool featuresSign(TelemetryPacket &packet);

@@ -10,9 +10,9 @@ This is a capstone prototype for New Makati Central Fire Station. It is not prot
 | --- | --- | --- |
 | Node A, wearable | ESP32-S3-DevKitC-1. Wearer id `FF-01`. USB serial number `B8:1F:3F:D8:18:EC` | ESP-NOW to the gateway. Wi-Fi is only used to learn the gateway's channel |
 | Node B, gateway | ESP32-S3-DevKitC-1. USB serial number `14:C1:9F:C8:57:D8` | Receives ESP-NOW, joins Wi-Fi, prints JSON on USB |
-| Web board | Next.js app in `web/` | `http://localhost:3000`. XAMPP/Apache does not serve this app |
+| Web board | Separate project, not this folder | `http://localhost:3000`. XAMPP/Apache does not serve this app |
 
-COM port numbers change on every PC. Identify the boards by the USB serial number above, not by COM5 or COM6. Native-USB DevKits show up as USB Serial Device, VID `303A`, PID `1001`. Some kits (including replacements) use a WCH **CH343** bridge instead (`VID 1A86`, `PID 55D3`) — `npm run bridge` accepts those too. Prefer the port that prints `[node-b]` heartbeats.
+COM port numbers change on every PC. Identify the boards by the USB serial number above, not by COM5 or COM6. Native-USB DevKits show up as USB Serial Device, VID `303A`, PID `1001`. Some kits (including replacements) use a WCH UART bridge instead: **CH343** (`1A86:55D3`), **CH340** (`1A86:7523`), or **CH9102** (`1A86:55D4`). `npm run bridge` accepts those. It does not stay on a remembered COM port, and it leaves a port that prints `[node-a]`. The gateway is the port that prints `[node-b]` heartbeats.
 
 Node B firmware mirrors logs and Wi-Fi commands on **both** native USB CDC and UART0 (CH343). If the bridge only prints `sent router …` and never `heartbeat`, reflash Node B from this repo so the CH343 port speaks `[node-b]` lines. ESP32 radios are **2.4 GHz only** — a saved SSID named like `…5GHz…` will not join.
 
@@ -22,7 +22,7 @@ ESP-NOW only works when both radios are on the same channel. The wearable learns
 
 1. Git.
 2. Node.js 20 or newer.
-3. Python 3. Then, from `web/`:
+3. Python 3. Then, from this firmware repo:
 
 ```powershell
 python -m pip install pyserial platformio
@@ -34,7 +34,7 @@ PowerShell does not accept `&&`. Run commands one at a time, or separate them wi
 
 ## Run the board
 
-From `web/`:
+From the separate board project:
 
 ```powershell
 npm install
@@ -44,17 +44,19 @@ npm run dev
 
 Leave that window open. `http://localhost:3000` refuses the connection when the dev server is not running. The server listens on `0.0.0.0:3000`.
 
-Plug in the gateway. In a second window, from `web/`:
+Plug in the gateway. In a second window, from the separate board project:
 
 ```powershell
 npm run bridge
 ```
 
-`npm run bridge` uses the Windows `py -3` launcher (not the Microsoft Store `python` stub). The bridge auto-detects Node B by USB serial (`14:C1:9F:C8:57:D8` when that board is used), by listening for `[node-b]` if both ESP32s are plugged in, and by remembering the last working port in `web/data/bridge-port.json`. COM numbers can change when you swap PCs or boards — you do not need to pass `COMx`. Optional override: `npm run bridge -- COM7` or `py -3 serial-bridge.py COM7`. If nothing is plugged in yet, the bridge waits and retries.
+`npm run bridge` uses the Windows `py -3` launcher (not the Microsoft Store `python` stub). The bridge auto-detects Node B by USB serial (`14:C1:9F:C8:57:D8` when that board is used), by listening for `[node-b]` if both ESP32s are plugged in, and by remembering the last working port in the board project's `data/bridge-port.json`. COM numbers can change when you swap PCs or boards — you do not need to pass `COMx`. Optional override: `npm run bridge -- COM7` or `py -3 serial-bridge.py COM7`. If nothing is plugged in yet, the bridge waits and retries.
 
 If `python` alone opens the Microsoft Store, turn off **Settings → Apps → Advanced app settings → App execution aliases → python.exe / python3.exe**, or keep using `npm run bridge` / `py -3`.
 
-The bridge forwards gateway serial JSON to `http://127.0.0.1:3000/api/telemetry`. Windows Firewall usually blocks the ESP32 from POSTing straight to the PC, so the USB bridge is the path that actually fills the dashboard. Open the serial port with DTR and RTS off. The default pyserial settings reset the board or swallow the Wi-Fi line.
+The bridge forwards gateway serial JSON to the hosted board first (`https://firealert-three.vercel.app`), then to `http://127.0.0.1:3000/api/telemetry`. The page you are looking at reads that hosted log. A bridge that only posts to localhost leaves the gateway on “last seen”. Windows Firewall usually blocks the ESP32 from POSTing straight to the PC. Open the serial port with DTR and RTS off. The default pyserial settings reset the board or swallow the Wi-Fi line.
+
+Restart the bridge after pulling this fix. An already-open window keeps the old port picker. Stop it and run `npm run bridge` again from the board project. If that folder is an older copy, run `py -3 firmware\tools\serial-bridge.py` from this repo instead. If the pill stays on last seen, the window should print `Gateway detected on COMx` and `gateway wifi=up`. A window that only prints wearable lines was on the wrong board.
 
 The bridge also sends the active Wi-Fi name to the gateway and to the other ESP32 (the wearable) so both end up on the same channel. Restart the bridge after pulling a new `serial-bridge.py`. An already-running bridge keeps the old code.
 
@@ -62,7 +64,7 @@ The bridge also sends the active Wi-Fi name to the gateway and to the other ESP3
 
 Open **Gateway** on the board (`/gateway`).
 
-- **Room router** and **Phone hotspot** are stored separately in `web/data/network.json`.
+- **Room router** and **Phone hotspot** are stored separately in the board project's `data/network.json`.
 - Saving one does not erase the other.
 - The active one is what the bridge sends to the devices.
 - **Use room router** switches back to the saved router without retyping it.
@@ -71,7 +73,7 @@ That file is gitignored. A fresh clone has no passwords. Type them on the Gatewa
 
 Anyone who can open the dashboard can read the saved password. There is no login.
 
-The lab router name was `PLDTHOMEFIBRYeau4`. The lab phone hotspot name was `zaibuzai`. Passwords stay off this page and off GitHub. A phone hotspot must be 2.4 GHz. On Android, turn on maximize compatibility and keep the phone awake.
+The room router is `PLDTHOMEFIBRYeau4`. The gateway and the wearable both join that network. The password is stored on the gateway flash and in the board project's `data/network.json`. A phone hotspot must be 2.4 GHz. On Android, turn on maximize compatibility and keep the phone awake.
 
 `network.json` shape:
 
@@ -89,7 +91,7 @@ The top-level `ssid` mirrors the active profile. `GET /api/network` and `PUT /ap
 
 ## Firmware on this PC
 
-`firmware/node-b/include/config.h` has `TELEMETRY_URL` set to `http://192.168.1.13:3000/api/telemetry`. That address is the previous PC. On a new computer, set it to this PC's IPv4 before flashing the gateway, for example `http://192.168.1.50:3000/api/telemetry`. The PC and the gateway must be on the same LAN. The USB bridge still works if that URL is wrong. A direct Wi-Fi POST from the gateway does not.
+`firmware/node-b/include/config.h` still has an old LAN `TELEMETRY_URL`. That address is not this PC, and a direct packet POST there does not update the dashboard. Link heartbeats are different: when Node B is on Wi-Fi it posts them to `HOSTED_LINK_URL` (`https://firealert-three.vercel.app/api/link`), which is the log this board reads. Reflash Node B after pulling this change or a gateway that is already joined still looks undetected. USB serial remains the path for the wearable packets. The USB bridge still works when that LAN URL is wrong.
 
 `WIFI_SSID` in both `config.h` files is a placeholder. After the first USB save, the boards keep the name in their own flash. `config.h` is used only when a board has never stored credentials.
 
@@ -114,9 +116,10 @@ Full pin map: [firmware/PINOUT.md](firmware/PINOUT.md). All logic-level signals 
 | Sensor | Bus | Address | What it is |
 | --- | --- | --- | --- |
 | SCD40 | GPIO 8 SDA, GPIO 9 SCL | `0x62` | Real CO₂, plus the sensor's own temperature and humidity |
+| MAX30102 | GPIO 8 SDA, GPIO 9 SCL | `0x57` | Heart rate and estimated SpO₂. Already wired. INT left open. Part ID `0x15` marks it detected. Heart rate stays empty |
 | BME688 | GPIO 17 SDA, GPIO 18 SCL | `0x77` when SDO is tied to 3.3 V. `0x76` when SDO is tied to GND | Device-air temperature, humidity, pressure, gas resistance |
 
-The BME688 is not on the SCD40 pins. Each ESP32 pin only has one female dupont, so the sensors do not share a bus. The BME688 driver is the Adafruit BME680 library on `TwoWire(1)`. The bus is chosen in the constructor (`Adafruit_BME680(&g_bme688Wire)`). `begin()` takes the address only. Passing the bus as the second argument does not select the bus. Gas resistance is not a carbon monoxide or LPG alarm. CO₂ comes from the SCD40 only. BME temperature is air at the board, not body temperature.
+The BME688 is not on the SCD40 pins. The MAX30102 and the MPU-6050 are. They share GPIO 8 and GPIO 9 with the SCD40. The BME688 stays on its own pair because each ESP32 pin only has one female dupont for a separate bus. The BME688 driver is the Adafruit BME680 library on `TwoWire(1)`. The bus is chosen in the constructor (`Adafruit_BME680(&g_bme688Wire)`). `begin()` takes the address only. Passing the bus as the second argument does not select the bus. Gas resistance is not a carbon monoxide or LPG alarm. CO₂ comes from the SCD40 only. BME temperature is air at the board, not body temperature.
 
 Type `scan` on the wearable serial port to print which addresses answer on each bus.
 
@@ -124,14 +127,14 @@ Type `scan` on the wearable serial port to print which addresses answer on each 
 
 Do not turn these flags on until the part is wired and a driver is linked. They are listed in `firmware/node-a/include/config.h` and in the README placeholder table.
 
-- MAX30102, MPU-6050, GPS, battery divider, buzzer, touchscreen
+- GPS, battery divider, buzzer, and touchscreen. The MAX30102 on GPIO 8/9 is detected by part ID. Heart rate is still empty |
 - Edge Impulse fall model (`predictFall()` stays false). Serial command `fall` starts the 10-second cancel window. GPIO 4, active low, cancels it
 - Cellular modem on the gateway
 - MQ-6 LPG module. It is the chosen cheap leak sensor and it is not in the firmware yet. When it is added: module VCC to the devkit 5 V pin, GND to GND, AO to GPIO 1 through two 10 kΩ resistors (one from AO to GPIO 1, one from GPIO 1 to GND), DO left unconnected. Heater needs about 10–15 minutes after each power-up. The reading is a relative level, not %LEL
 
 ## Rules for the next session
 
-- Do not commit `web/data/network.json`, `.env` files, or anything under `.pio/` or `web/.next/`.
+- Do not commit the board project's `data/network.json`, `.env` files, or anything under `.pio/` or `.next/`.
 - Do not put Wi-Fi passwords in `config.h`.
 - Do not point the USB bridge at the wearable port. The bridge's main port is the gateway. It opens the wearable only long enough to send the Wi-Fi line.
 - A green gateway with no wearable packets is a channel mismatch until proven otherwise. Check the Gateway page for the gateway channel, then the wearable serial line `ESP-NOW channel`.

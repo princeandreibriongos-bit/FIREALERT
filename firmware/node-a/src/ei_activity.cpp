@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <string.h>
 
+#include "dual_serial.h"
+
 #include "edge-impulse-sdk/classifier/ei_run_classifier.h"
 
 static float g_features[EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE];
@@ -23,7 +25,7 @@ static void runInference() {
   ei_impulse_result_t result = {};
   const EI_IMPULSE_ERROR err = run_classifier(&signal, &result, false);
   if (err != EI_IMPULSE_OK) {
-    Serial.printf("[node-a] EI classify err %d\n", static_cast<int>(err));
+    FASerial.printf("[node-a] EI classify err %d\n", static_cast<int>(err));
     return;
   }
 
@@ -35,7 +37,7 @@ static void runInference() {
   strncpy(g_label, result.classification[best].label, sizeof(g_label) - 1);
   g_label[sizeof(g_label) - 1] = '\0';
 
-  Serial.printf("[node-a] activity=%s score=%.2f (dsp=%dms nn=%dms)\n", g_label, g_score,
+  FASerial.printf("[node-a] activity=%s score=%.2f (dsp=%dms nn=%dms)\n", g_label, g_score,
                 result.timing.dsp, result.timing.classification);
 }
 

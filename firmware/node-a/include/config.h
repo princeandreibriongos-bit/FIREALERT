@@ -8,11 +8,11 @@ static constexpr const char *DEVICE_ID = "FF-01";
 
 // --- ESP-NOW ---------------------------------------------------------------
 // The wearable does not use Wi-Fi for telemetry. It joins an AP only to learn
-// the channel Node B is using. Set the router on the dashboard. These two
-// constants are used only until the board has saved credentials of its own.
+// the channel Node B is using. Both boards stay on the room router so they
+// share a channel. The gateway stores the same name in its own flash.
 static constexpr uint8_t WIFI_CHANNEL = 9;
-static constexpr const char *WIFI_SSID = "YOUR_WIFI_SSID";
-static constexpr const char *WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+static constexpr const char *WIFI_SSID = "PLDTHOMEFIBRYeau4";
+static constexpr const char *WIFI_PASSWORD = "Briongos2025";
 /** Boot-only wait. Runtime Wi-Fi joins are non-blocking so motion never stalls. */
 static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 4000;
 
@@ -48,7 +48,7 @@ static constexpr uint8_t BME688_I2C_ADDR_ALT = 0x76;
 static constexpr bool BME688_SEPARATE_I2C_BUS = true;
 static constexpr int BME688_I2C_SDA_PIN = 17;
 static constexpr int BME688_I2C_SCL_PIN = 18;
-static constexpr uint8_t MAX30102_I2C_ADDR = 0x57;  // heart rate, estimated SpO2 — not clinical
+static constexpr uint8_t MAX30102_I2C_ADDR = 0x57;  // wired on GPIO 8/9. Heart rate, estimated SpO2 — not clinical
 static constexpr uint8_t MPU6050_I2C_ADDR = 0x68;   // AD0 tied to GND. AD0 to 3V3 is 0x69.
 // Shares GPIO 8/9 with the SCD40. Leave the BME688 alone on 17/18.
 static constexpr bool MPU6050_SEPARATE_I2C_BUS = false;
@@ -58,7 +58,8 @@ static constexpr int MPU6050_I2C_SCL_PIN = 9;
 // Set true only after that module is soldered and the matching driver is linked.
 static constexpr bool SCD40_ENABLED = true;
 static constexpr bool BME688_ENABLED = true;
-static constexpr bool MAX30102_ENABLED = false;
+// Part ID is read at 0x57 on GPIO 8/9. Heart rate and SpO2 stay empty.
+static constexpr bool MAX30102_ENABLED = true;
 static constexpr bool MPU6050_ENABLED = true;
 
 // MQ-6 heater uses the devkit 5V pin. AO reaches GPIO 1 through two 10 kΩ
