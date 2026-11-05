@@ -34,17 +34,27 @@ PowerShell does not accept `&&`. Run commands one at a time, or separate them wi
 
 ## Run the board
 
-From the separate board project:
+From `web/` in this repo:
 
 ```powershell
 npm install
 npm test
-npm run dev
 ```
 
-Leave that window open. `http://localhost:3000` refuses the connection when the dev server is not running. The server listens on `0.0.0.0:3000`.
+`npm start` and `npm run dev` both use port 3000. Run only one.
 
-Plug in the gateway. In a second window, from the separate board project:
+For a test or a demo, build first so tab changes stay fast. After the website code changes:
+
+```powershell
+npm run build
+npm start
+```
+
+The next start on this computer can skip `npm run build` until `web/` changes again. While editing the site, stop `npm start` and run `npm run dev` instead.
+
+Leave that window open. `http://localhost:3000` refuses the connection when no board server is running. The server listens on `0.0.0.0:3000`.
+
+Plug in the gateway. In a second window, from `web/`:
 
 ```powershell
 npm run bridge

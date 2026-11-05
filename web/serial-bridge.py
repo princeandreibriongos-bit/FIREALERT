@@ -1,14 +1,15 @@
-"""Forward Node B serial JSON lines to the local Next.js API.
+"""Forward Node B serial JSON to the hosted board and to localhost.
 
 Windows Firewall often blocks the ESP32 from POSTing to this PC.
-The gateway already prints each payload on USB serial; this script
-replays those objects to http://localhost:3000/api/telemetry.
-The local API then copies the same readings to the hosted board.
+The gateway prints each payload on USB. This script posts that JSON to
+the Vercel board first, then to http://127.0.0.1:3000, so command sees
+the same readings while this laptop has internet.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import time
@@ -19,8 +20,41 @@ from pathlib import Path
 import serial
 from serial.tools import list_ports
 
-API_URL = "http://127.0.0.1:3000/api/telemetry"
-LINK_URL = "http://127.0.0.1:3000/api/link"
+LOCAL_ORIGIN = "http://127.0.0.1:3000"
+FALLBACK_HOSTED_ORIGIN = "https://firealert-three.vercel.app"
+ENV_PATH = Path(__file__).resolve().parent / ".env.local"
+
+
+def read_env_value(key: str) -> str:
+    found = os.environ.get(key, "").strip().strip('"').strip("'")
+    if found:
+        return found
+    try:
+        lines = ENV_PATH.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+    prefix = f"{key}="
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or not stripped.startswith(prefix):
+            continue
+        return stripped[len(prefix) :].strip().strip('"').strip("'")
+    return ""
+
+
+def hosted_origin() -> str:
+    configured = read_env_value("HOSTED_BOARD_URL") or read_env_value("NEXT_PUBLIC_HOSTED_BOARD_URL")
+    configured = configured.rstrip("/")
+    if configured.startswith("http://") or configured.startswith("https://"):
+        return configured
+    return FALLBACK_HOSTED_ORIGIN
+
+
+HOSTED_ORIGIN = hosted_origin()
+API_URL = f"{LOCAL_ORIGIN}/api/telemetry"
+LINK_URL = f"{LOCAL_ORIGIN}/api/link"
+API_URLS = [f"{HOSTED_ORIGIN}/api/telemetry", API_URL]
+LINK_URLS = [f"{HOSTED_ORIGIN}/api/link", LINK_URL]
 # New firmware adds phase/trying/detail; older builds still match without them.
 HEARTBEAT = re.compile(
     r"\[node-b\] heartbeat wifi=(up|down) ip=(\S+) ch=(\d+) mac=([0-9A-Fa-f:]+)"
@@ -374,11 +408,26 @@ def post_json(url: str, payload: dict) -> int:
     req = urllib.request.Request(
         url,
         data=data,
-        headers={"Content-Type": "application/json", "X-Firealert-Bridge": "serial"},
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "FIREALERT-bridge",
+            "X-Firealert-Bridge": "serial",
+        },
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=5) as resp:
         return resp.status
+
+
+def post_each(urls: list[str], payload: dict) -> str:
+    notes: list[str] = []
+    for url in urls:
+        host = url.split("/")[2]
+        try:
+            notes.append(f"{host} {post_json(url, payload)}")
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            notes.append(f"{host} failed ({exc})")
+    return ", ".join(notes)
 
 
 def link_payload(state: dict) -> dict[str, object]:

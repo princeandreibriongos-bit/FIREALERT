@@ -18,7 +18,7 @@ On a new computer, read **[NEW-PC.md](NEW-PC.md)** before installing or flashing
 
 - **Node A (wearable):** ESP32-S3 reads the SCD40 (CO₂, sensor temperature, humidity) and the BME688 (device air temperature, humidity, pressure, gas resistance) on the same I2C bus, then sends ESP-NOW to the gateway. Wi-Fi on this node is only for learning the gateway channel.
 - **Node B (gateway):** Receives ESP-NOW and POSTs JSON. Wi-Fi is the stand-in uplink until a cellular modem is installed.
-- **Web board:** `http://localhost:3000` after `npm run dev`. **Load sample crew** fills FF-01 and FF-02 with simulated packets so the layout can be reviewed without hardware.
+- **Web board:** `http://localhost:3000` from `web/`. Use `npm start` after `npm run build` for a test or demo. Use `npm run dev` only while editing the site. **Load sample crew** fills FF-01 and FF-02 with simulated packets so the layout can be reviewed without hardware.
 
 ## Placeholders
 
@@ -66,14 +66,38 @@ Summary for Node A: SCD40, MAX30102 (`0x57`, already wired, INT open), and MPU-6
 
 ## Web app
 
-The board is not in this repository. Open the separate capstone project and run:
+The board is in `web/`. Run the commands in this section from that folder.
 
-```bash
-npm install
+### Starting the board
+
+`npm start` and `npm run dev` both listen on port 3000. Start only one of them. The second fails with `EADDRINUSE`.
+
+For a test or a demo, serve the built site. `npm run dev` compiles each page the first time it is opened, so changing tabs is slow until that compile finishes.
+
+After the website code changes, build once, then start:
+
+```powershell
+npm run build
+npm start
+```
+
+Leave that window open and open http://localhost:3000
+
+The next time the computer starts, `npm start` is enough until the website code changes again. Run `npm run build` again only after a change under `web/`.
+
+While editing the site, stop `npm start` with Ctrl+C, then:
+
+```powershell
 npm run dev
 ```
 
-Open http://localhost:3000
+In a second window, from `web/`, plug in the gateway and run:
+
+```powershell
+npm run bridge
+```
+
+Leave the bridge window open. It forwards gateway serial to the hosted board and to `http://127.0.0.1:3000/api/telemetry`. Restart it after pulling bridge changes. One bridge only: a second copy cannot open the same COM port.
 
 The public landing page is open without login. Board routes (`/overview`, `/crew`, `/incidents`, and the rest of the shell) require a signed-in station account.
 
@@ -172,13 +196,7 @@ npm run verify:neon
 - `ensure-admin.ts` creates or resets the demo account **`admin` / `admin123`**.
 - `verify:neon` runs a live Postgres + auth probe.
 
-Then start the board:
-
-```bash
-npm run dev
-```
-
-Open http://localhost:3000 → use **Sign in** with `admin` / `admin123` → you should land on `/overview`.
+Then start the board from `web/` with `npm run build` and `npm start`, as in [Starting the board](#starting-the-board). Sign in at http://localhost:3000 with `admin` / `admin123`. You should land on `/overview`.
 
 ### 4. Manual connection string (no CLI)
 
