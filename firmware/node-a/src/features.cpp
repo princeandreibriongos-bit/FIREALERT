@@ -30,6 +30,10 @@ static float g_spo2 = NAN;
 static uint32_t g_lastBeatMs = 0;
 static float g_beatWindow[4] = {};
 static uint8_t g_beatCount = 0;
+static uint32_t g_prevIr = 0;
+static uint32_t g_prev2Ir = 0;
+static uint8_t g_fingerMiss = 0;
+static uint32_t g_sampleClock = 0;
 static constexpr int kPulseWindow = 64;
 static uint32_t g_redWindow[kPulseWindow] = {};
 static uint32_t g_irWindow[kPulseWindow] = {};
@@ -439,7 +443,8 @@ static void maxBusRestore() { Wire.setClock(SHARED_I2C_HZ); }
 static void noteMaxBeat(uint32_t now) {
   if (g_lastBeatMs != 0) {
     const uint32_t delta = now - g_lastBeatMs;
-    if (delta >= 300 && delta <= 1500) {
+    if (delta < 300) return;
+    if (delta <= 1500) {
       const float bpm = 60000.0f / static_cast<float>(delta);
       g_beatWindow[g_beatCount % 4] = bpm;
       g_beatCount++;
@@ -450,6 +455,14 @@ static void noteMaxBeat(uint32_t now) {
     }
   }
   g_lastBeatMs = now;
+}
+
+static void noteIrPeak(uint32_t ir, uint32_t sampleMs) {
+  const uint32_t mid = g_prevIr;
+  const bool peak = g_prevIr != 0 && mid > g_prev2Ir && mid >= ir && (mid - g_prev2Ir) > 30;
+  g_prev2Ir = g_prevIr;
+  g_prevIr = ir;
+  if (peak) noteMaxBeat(sampleMs >= 40 ? sampleMs - 40 : sampleMs);
 }
 
 static void noteMaxSample(uint32_t red, uint32_t ir) {
@@ -483,6 +496,25 @@ static void noteMaxSample(uint32_t red, uint32_t ir) {
   const float ratio = (redAc / redDc) / (irAc / irDc);
   const float spo2 = 110.0f - 25.0f * ratio;
   g_spo2 = (spo2 >= 70.0f && spo2 <= 100.0f) ? spo2 : NAN;
+
+  // 100 Hz averaged by 4 → one FIFO sample every 40 ms.
+  const uint32_t midLevel = irMin + (irMax - irMin) / 3;
+  int lastPeak = -1;
+  float bpmSum = 0;
+  int intervals = 0;
+  for (int i = 1; i < kPulseWindow - 1; ++i) {
+    const uint32_t v = g_irWindow[i];
+    if (v <= g_irWindow[i - 1] || v < g_irWindow[i + 1] || v < midLevel) continue;
+    if (lastPeak >= 0) {
+      const int gap = i - lastPeak;
+      if (gap >= 8 && gap <= 38) {
+        bpmSum += 1500.0f / static_cast<float>(gap);
+        intervals++;
+      }
+    }
+    lastPeak = i;
+  }
+  if (intervals > 0) g_hrBpm = bpmSum / static_cast<float>(intervals);
 }
 
 static void sampleMax30102() {
@@ -497,15 +529,23 @@ static void sampleMax30102() {
     g_max30102.nextSample();
     ++drained;
     if (ir < 5000) {
-      g_hrBpm = NAN;
-      g_spo2 = NAN;
-      g_lastBeatMs = 0;
-      g_beatCount = 0;
-      g_pulseFill = 0;
+      if (++g_fingerMiss > 15) {
+        g_hrBpm = NAN;
+        g_spo2 = NAN;
+        g_lastBeatMs = 0;
+        g_beatCount = 0;
+        g_pulseFill = 0;
+        g_prevIr = 0;
+        g_prev2Ir = 0;
+        g_sampleClock = 0;
+      }
       continue;
     }
+    g_fingerMiss = 0;
     noteMaxSample(red, ir);
-    if (checkForBeat(static_cast<int32_t>(ir))) noteMaxBeat(now);
+    if (g_sampleClock == 0 || now > g_sampleClock + 500) g_sampleClock = now;
+    else g_sampleClock += 40;
+    noteIrPeak(ir, g_sampleClock);
   }
   maxBusRestore();
 }
@@ -535,6 +575,10 @@ static bool beginMax30102() {
   g_pulseFill = 0;
   g_beatCount = 0;
   g_lastBeatMs = 0;
+  g_prevIr = 0;
+  g_prev2Ir = 0;
+  g_fingerMiss = 0;
+  g_sampleClock = 0;
   FASerial.println("[node-a] MAX30102 sampling red+IR");
   maxBusRestore();
   return true;
