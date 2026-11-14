@@ -5,7 +5,9 @@
 #include <Wire.h>
 #include <driver/gpio.h>
 #include <Adafruit_BME680.h>
+#include <MAX30105.h>
 #include <SensirionI2cScd4x.h>
+#include <heartRate.h>
 #include <math.h>
 #include <string.h>
 
@@ -21,6 +23,17 @@ static WifiCreds g_wifi = {};
 static bool g_scd40Ready = false;
 static bool g_bme688Ready = false;
 static bool g_max30102Ready = false;
+static MAX30105 g_max30102;
+static bool g_max30102Sampling = false;
+static float g_hrBpm = NAN;
+static float g_spo2 = NAN;
+static uint32_t g_lastBeatMs = 0;
+static float g_beatWindow[4] = {};
+static uint8_t g_beatCount = 0;
+static constexpr int kPulseWindow = 64;
+static uint32_t g_redWindow[kPulseWindow] = {};
+static uint32_t g_irWindow[kPulseWindow] = {};
+static uint8_t g_pulseFill = 0;
 static bool g_mpu6050Ready = false;
 static uint8_t g_mpuAddr = MPU6050_I2C_ADDR;
 static int g_mpuSda = 40;
@@ -415,54 +428,122 @@ static void readBme688(WearableReadings &out) {
   publishLastBme(out);
 }
 
-static constexpr uint8_t MAX30102_REG_PART_ID = 0xFF;
-static constexpr uint8_t MAX30102_PART_ID = 0x15;
-
-static bool maxReadPartId(uint8_t &part) {
-  Wire.setClock(SHARED_I2C_HZ);
+static void maxBusForSample() {
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_SPEED_STANDARD);
+  Wire.setClock(I2C_SPEED_STANDARD);
   Wire.setTimeOut(30);
-  Wire.beginTransmission(MAX30102_I2C_ADDR);
-  Wire.write(MAX30102_REG_PART_ID);
-  if (Wire.endTransmission(false) != 0) return false;
-  if (Wire.requestFrom(MAX30102_I2C_ADDR, static_cast<uint8_t>(1)) != 1) return false;
-  part = static_cast<uint8_t>(Wire.read());
-  return true;
+}
+
+static void maxBusRestore() { Wire.setClock(SHARED_I2C_HZ); }
+
+static void noteMaxBeat(uint32_t now) {
+  if (g_lastBeatMs != 0) {
+    const uint32_t delta = now - g_lastBeatMs;
+    if (delta >= 300 && delta <= 1500) {
+      const float bpm = 60000.0f / static_cast<float>(delta);
+      g_beatWindow[g_beatCount % 4] = bpm;
+      g_beatCount++;
+      const uint8_t count = g_beatCount < 4 ? g_beatCount : 4;
+      float sum = 0;
+      for (uint8_t i = 0; i < count; ++i) sum += g_beatWindow[i];
+      g_hrBpm = sum / static_cast<float>(count);
+    }
+  }
+  g_lastBeatMs = now;
+}
+
+static void noteMaxSample(uint32_t red, uint32_t ir) {
+  g_redWindow[g_pulseFill % kPulseWindow] = red;
+  g_irWindow[g_pulseFill % kPulseWindow] = ir;
+  g_pulseFill++;
+  if ((g_pulseFill % kPulseWindow) != 0) return;
+
+  uint32_t redMin = UINT32_MAX;
+  uint32_t redMax = 0;
+  uint32_t irMin = UINT32_MAX;
+  uint32_t irMax = 0;
+  uint64_t redSum = 0;
+  uint64_t irSum = 0;
+  for (int i = 0; i < kPulseWindow; ++i) {
+    redSum += g_redWindow[i];
+    irSum += g_irWindow[i];
+    if (g_redWindow[i] < redMin) redMin = g_redWindow[i];
+    if (g_redWindow[i] > redMax) redMax = g_redWindow[i];
+    if (g_irWindow[i] < irMin) irMin = g_irWindow[i];
+    if (g_irWindow[i] > irMax) irMax = g_irWindow[i];
+  }
+  const float redDc = static_cast<float>(redSum) / kPulseWindow;
+  const float irDc = static_cast<float>(irSum) / kPulseWindow;
+  const float redAc = static_cast<float>(redMax - redMin);
+  const float irAc = static_cast<float>(irMax - irMin);
+  if (irDc < 5000.0f || redDc < 2000.0f || irAc < 50.0f || redAc < 30.0f) {
+    g_spo2 = NAN;
+    return;
+  }
+  const float ratio = (redAc / redDc) / (irAc / irDc);
+  const float spo2 = 110.0f - 25.0f * ratio;
+  g_spo2 = (spo2 >= 70.0f && spo2 <= 100.0f) ? spo2 : NAN;
+}
+
+static void sampleMax30102() {
+  if (!g_max30102Sampling) return;
+  maxBusForSample();
+  g_max30102.check();
+  const uint32_t now = millis();
+  int drained = 0;
+  while (g_max30102.available() && drained < 25) {
+    const uint32_t red = g_max30102.getRed();
+    const uint32_t ir = g_max30102.getIR();
+    g_max30102.nextSample();
+    ++drained;
+    if (ir < 5000) {
+      g_hrBpm = NAN;
+      g_spo2 = NAN;
+      g_lastBeatMs = 0;
+      g_beatCount = 0;
+      g_pulseFill = 0;
+      continue;
+    }
+    noteMaxSample(red, ir);
+    if (checkForBeat(static_cast<int32_t>(ir))) noteMaxBeat(now);
+  }
+  maxBusRestore();
 }
 
 static bool beginMax30102() {
+  g_max30102Sampling = false;
   if (!MAX30102_ENABLED) {
     FASerial.println("[node-a] MAX30102 disabled");
     return false;
   }
-  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, SHARED_I2C_HZ);
-  Wire.setClock(SHARED_I2C_HZ);
-  Wire.setTimeOut(30);
-  uint8_t part = 0;
-  const bool gotId = maxReadPartId(part);
-  if (!gotId) {
-    Wire.beginTransmission(MAX30102_I2C_ADDR);
-    if (Wire.endTransmission() != 0) {
-      FASerial.printf("[node-a] MAX30102 0x%02X no ack on SDA=%d SCL=%d\n", MAX30102_I2C_ADDR, I2C_SDA_PIN, I2C_SCL_PIN);
-      return false;
-    }
-    FASerial.printf("[node-a] MAX30102 ready at 0x%02X\n", MAX30102_I2C_ADDR);
-    return true;
+  maxBusForSample();
+  if (!g_max30102.begin(Wire, I2C_SPEED_STANDARD, MAX30102_I2C_ADDR)) {
+    FASerial.printf("[node-a] MAX30102 0x%02X no ack on SDA=%d SCL=%d\n", MAX30102_I2C_ADDR, I2C_SDA_PIN, I2C_SCL_PIN);
+    maxBusRestore();
+    return false;
   }
-  FASerial.printf("[node-a] MAX30102 ready at 0x%02X part 0x%02X\n", MAX30102_I2C_ADDR, part);
+  // ledMode 2 = red + IR. Estimates only; not a clinical reading.
+  g_max30102.setup(0x1F, 4, 2, 100, 411, 4096);
+  g_max30102.setPulseAmplitudeRed(0x1F);
+  g_max30102.setPulseAmplitudeIR(0x1F);
+  g_max30102.setPulseAmplitudeGreen(0);
+  g_max30102Sampling = true;
+  g_hrBpm = NAN;
+  g_spo2 = NAN;
+  g_pulseFill = 0;
+  g_beatCount = 0;
+  g_lastBeatMs = 0;
+  FASerial.println("[node-a] MAX30102 sampling red+IR");
+  maxBusRestore();
   return true;
 }
 
 static void readMax30102(WearableReadings &out) {
   if (!g_max30102Ready) return;
-  uint8_t part = 0;
-  if (!maxReadPartId(part)) {
-    Wire.beginTransmission(MAX30102_I2C_ADDR);
-    if (Wire.endTransmission() != 0) {
-      FASerial.println("[node-a] MAX30102 read missed");
-      return;
-    }
-  }
+  sampleMax30102();
   out.max30102 = true;
+  out.heart_rate_bpm = g_hrBpm;
+  out.spo2_percent = g_spo2;
 }
 
 static void mpuPinHigh(int pin) { pinMode(pin, INPUT_PULLUP); }
@@ -1154,6 +1235,12 @@ void featuresRead(WearableReadings &out) {
   // Motion path is independent: never block on a fresh SCD/BME sample.
   clearReadings(out);
   if (g_envCacheReady) copyEnvironment(g_envCache, out);
+  if (g_max30102Ready) {
+    sampleMax30102();
+    out.max30102 = true;
+    out.heart_rate_bpm = g_hrBpm;
+    out.spo2_percent = g_spo2;
+  }
   readMpu6050(out);
   readMq6(out);
   eiActivityPushSample(out);

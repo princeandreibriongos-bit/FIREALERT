@@ -63,7 +63,7 @@ Each module must have a **unique I2C address** (set by hardware, e.g. BME688 SDO
 | --- | --- | --- | --- | --- |
 | SCD40 | `0x62` | `SCD40_I2C_ADDR` | `SCD40_ENABLED` | **Live** |
 | BME688 | `0x77` or `0x76` | `BME688_I2C_ADDR` / `_ALT` | `BME688_ENABLED` | **Live** (tries both at boot) |
-| MAX30102 | `0x57` | `MAX30102_I2C_ADDR` | `MAX30102_ENABLED` | **Wired** on GPIO 8 / 9. Part ID `0x15` counts as detected. Heart rate stays empty |
+| MAX30102 | `0x57` | `MAX30102_I2C_ADDR` | `MAX30102_ENABLED` | **Wired** on GPIO 8 / 9. Finger on the glass: estimated BPM and SpO₂ |
 | MPU-6050 | `0x68` | `MPU6050_I2C_ADDR` | `MPU6050_ENABLED` | **GPIO 8 / 9** with the SCD40 |
 
 Bus speed: **100 kHz** (`I2C_FREQUENCY_HZ`).
@@ -120,7 +120,7 @@ Not measured by BME688: **CO₂** (SCD40 only). Gas resistance is **not** a cert
 
 ### MAX30102 (wired — heart rate, SpO₂ estimate)
 
-The module is already on the wearable. It shares **GPIO 8 / 9** with the SCD40 and the MPU-6050. Leave the BME688 on **GPIO 17 / 18**. The firmware reads part ID `0x15` at `0x57` and marks the sensor detected. Heart rate and SpO₂ stay empty.
+The module is already on the wearable. It shares **GPIO 8 / 9** with the SCD40 and the MPU-6050. Leave the BME688 on **GPIO 17 / 18**. VIN stays **3.3 V**. The firmware turns on red and IR, drains the FIFO about every 100 ms, and sends an estimated heart rate and SpO₂ once a finger covers the glass. Those numbers are estimates, not a clinical reading. No finger leaves both values empty while the sensor still shows as detected.
 
 | MAX30102 pin | Connect to Node A |
 | --- | --- |
@@ -266,3 +266,4 @@ After Node B connects to Wi-Fi, serial log prints **channel** and **STA MAC**. S
 | 2026-10-30 | MPU-6050 returned to GPIO 40/41 after it stayed silent on both pairs |
 | 2026-10-30 | MPU-6050 SDA/SCL moved onto GPIO 8/9 with the SCD40 |
 | 2026-11-03 | MAX30102 recorded as wired on GPIO 8/9 with the SCD40 |
+| 2026-11-14 | MAX30102 samples red+IR and reports estimated BPM and SpO₂ |
