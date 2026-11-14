@@ -18,6 +18,57 @@ Node B firmware mirrors logs and Wi-Fi commands on **both** native USB CDC and U
 
 ESP-NOW only works when both radios are on the same channel. The wearable learns that channel by joining the same Wi-Fi network as the gateway. If the wearable is still on the room router (lab channel 9) and the gateway moves to a phone hotspot (lab channel 1), the wearable looks disconnected. Both devices must be given the new network. The wearable defaults to **ESP-NOW broadcast** so a replacement gateway does not need its MAC edited into `config.h`.
 
+## What a new machine needs
+
+Install these before flashing or opening the board. Versions that are already known to build this repo: Node.js 20 or newer, Python 3.10 or newer, PlatformIO via pip (the PlatformIO IDE is optional).
+
+| Tool | Why | Check |
+| --- | --- | --- |
+| Git | Clone and pull `master` | `git --version` |
+| Node.js 20+ and npm | `web/` Next.js board | `node -v` |
+| Python 3 | USB bridge and PlatformIO | `python3 --version` |
+| pyserial | `web/serial-bridge.py` | `python3 -c "import serial"` |
+| PlatformIO | Flash `firmware/node-a` and `firmware/node-b` | `pio --version` or `python3 -m platformio --version` |
+| A C/C++ build (gcc, make, python3-venv) | PlatformIO compiles the ESP32 images | `gcc --version` |
+| USB serial access | The bridge and the uploader open `/dev/ttyACM*` or `/dev/ttyUSB*` | User is in the `dialout` group on Linux |
+
+Optional, only if this computer should sign in and keep history in Neon:
+
+- `web/.env.local` with `DATABASE_URL` (pooled), `DATABASE_URL_UNPOOLED`, and `SESSION_SECRET` (at least 32 characters). Copy the names from `web/.env.example`. Do not commit that file.
+- Neon CLI (`npm i -g neon@latest`, then `neon login`) if you are pulling the existing project instead of pasting the connection string. Org `org-sweet-dust-25386727`, project `withered-boat-44245331`, branch `production`. Then from `web/`: `npm run db:push`, `npm run db:seed`, and `node --experimental-strip-types scripts/ensure-admin.ts`.
+
+Without `DATABASE_URL` the site can still be built, and the USB bridge can still post packets, but sign-in returns 503 and roster scripts refuse to run. The hosted board at `https://firealert-three.vercel.app` already has its own database. The laptop bridge posts there and to `http://127.0.0.1:3000/api/telemetry`.
+
+Do not copy `data/network.json` into git. A new clone has no Wi-Fi password until someone types it on the Gateway page. `config.h` still contains a lab fallback SSID; treat that file as lab-only and do not add another password to the docs or to a commit.
+
+## Install on Linux (Pop!_OS / Ubuntu)
+
+```bash
+sudo apt update
+sudo apt install -y git curl ca-certificates build-essential python3 python3-pip python3-venv
+sudo usermod -aG dialout "$USER"
+```
+
+Log out and back in so `dialout` applies. Then:
+
+```bash
+# Node.js 20 if `node -v` is missing or older. NodeSource or the distro package both work.
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+
+python3 -m venv "$HOME/.firealert-pio"
+"$HOME/.firealert-pio/bin/pip" install -U pip platformio
+python3 -m pip install --user pyserial
+
+cd web
+npm install
+npm test
+```
+
+Pop!_OS often has no `python3 -m platformio` until that venv exists. Use `"$HOME/.firealert-pio/bin/pio"` for every flash. `npm run bridge` uses `python3` on Linux and only needs pyserial, not PlatformIO.
+
+Plug in both boards. They appear as `/dev/ttyACM0` and `/dev/ttyACM1` on native USB, or `/dev/ttyUSB*` on a CH340/CH343 adapter. If a port is missing, the user is not in `dialout` or another program (a serial monitor) already has the port.
+
 ## Install on Windows
 
 1. Git.
@@ -34,7 +85,25 @@ PowerShell does not accept `&&`. Run commands one at a time, or separate them wi
 
 ## Run the board
 
-From `web/` in this repo:
+From `web/` in this repo. The PowerShell blocks below are the Windows form. On Linux run the same `npm` lines in bash, one command at a time, from `web/`.
+
+Linux, after `npm install`:
+
+```bash
+cd web
+npm test
+npm run build
+npm start
+```
+
+Leave that window open. In a second terminal, with the gateway plugged in and no serial monitor on its port:
+
+```bash
+cd web
+npm run bridge
+```
+
+`npm run dev` also starts the bridge. Use it only while editing the site, and do not run it beside `npm start`.
 
 ```powershell
 npm install
@@ -99,6 +168,18 @@ The room router is `PLDTHOMEFIBRYeau4`. The gateway and the wearable both join t
 
 The top-level `ssid` mirrors the active profile. `GET /api/network` and `PUT /api/network` use that file. A USB line the firmware accepts is `wifi`, a tab, the SSID, a tab, the password.
 
+## Flash on Linux
+
+Do not flash Node A onto the gateway. Identify the port by the boot line (`[node-a]` or `[node-b]`), not by assuming ACM0 is the wearable.
+
+```bash
+cd /path/to/FIREALERT
+"$HOME/.firealert-pio/bin/pio" run -t upload -d firmware/node-b --upload-port /dev/ttyACM0
+"$HOME/.firealert-pio/bin/pio" run -t upload -d firmware/node-a --upload-port /dev/ttyACM1
+```
+
+Close the USB bridge and any serial monitor before uploading. If the upload says the port is busy, stop `npm run bridge` first. After a sensor bus lock (pulse LED stuck dim, `MAX30102 0x57 no ack`), unplug the devkit USB so the sensors lose power, seat the wiring, plug the USB back in, then press reset. A reset alone does not power-cycle the MAX30102.
+
 ## Firmware on this PC
 
 `firmware/node-b/include/config.h` still has an old LAN `TELEMETRY_URL`. That address is not this PC, and a direct packet POST there does not update the dashboard. Link heartbeats are different: when Node B is on Wi-Fi it posts them to `HOSTED_LINK_URL` (`https://firealert-three.vercel.app/api/link`), which is the log this board reads. Reflash Node B after pulling this change or a gateway that is already joined still looks undetected. USB serial remains the path for the wearable packets. The USB bridge still works when that LAN URL is wrong.
@@ -126,8 +207,10 @@ Full pin map: [firmware/PINOUT.md](firmware/PINOUT.md). All logic-level signals 
 | Sensor | Bus | Address | What it is |
 | --- | --- | --- | --- |
 | SCD40 | GPIO 8 SDA, GPIO 9 SCL | `0x62` | Real CO₂, plus the sensor's own temperature and humidity |
-| MAX30102 | GPIO 8 SDA, GPIO 9 SCL | `0x57` | Heart rate and estimated SpO₂. Already wired. INT left open. Part ID `0x15` marks it detected. Heart rate stays empty |
-| BME688 | GPIO 17 SDA, GPIO 18 SCL | `0x77` when SDO is tied to 3.3 V. `0x76` when SDO is tied to GND | Device-air temperature, humidity, pressure, gas resistance |
+| MAX30102 | GPIO 8 SDA, GPIO 9 SCL | `0x57` | Estimated heart rate and SpO₂ while a finger covers the glass. INT left open. VIN is 3.3 V. A dim LED means the chip was not initialized or the bus is latched; unplug USB, then reset |
+| MPU-6050 | GPIO 8 SDA, GPIO 9 SCL | `0x68` with AD0 to GND | Accel and gyro. **VCC must be 3.3 V.** A 5 V VCC lets the module pull-ups drive SDA/SCL above 3.3 V and the MAX30102 stops answering |
+| BME688 | GPIO 17 SDA, GPIO 18 SCL | `0x77` when SDO is tied to 3.3 V. `0x76` when SDO is tied to GND | Device-air temperature, humidity, pressure. Gas resistance reads 0 because the heater is off |
+| MQ-6 | Analog GPIO 1 | none | Heater VCC to the devkit **5 V** pin. AO through two 10 kΩ resistors to GPIO 1 (divider to GND). DO left open. Raw ADC count, not %LEL. Heater needs about 10–15 minutes after each power-up |
 
 The BME688 is not on the SCD40 pins. The MAX30102 and the MPU-6050 are. They share GPIO 8 and GPIO 9 with the SCD40. The BME688 stays on its own pair because each ESP32 pin only has one female dupont for a separate bus. The BME688 driver is the Adafruit BME680 library on `TwoWire(1)`. The bus is chosen in the constructor (`Adafruit_BME680(&g_bme688Wire)`). `begin()` takes the address only. Passing the bus as the second argument does not select the bus. Gas resistance is not a carbon monoxide or LPG alarm. CO₂ comes from the SCD40 only. BME temperature is air at the board, not body temperature.
 
@@ -137,10 +220,14 @@ Type `scan` on the wearable serial port to print which addresses answer on each 
 
 Do not turn these flags on until the part is wired and a driver is linked. They are listed in `firmware/node-a/include/config.h` and in the README placeholder table.
 
-- GPS, battery divider, buzzer, and touchscreen. The MAX30102 on GPIO 8/9 is detected by part ID. Heart rate is still empty |
-- Edge Impulse fall model (`predictFall()` stays false). Serial command `fall` starts the 10-second cancel window. GPIO 4, active low, cancels it
+- GPS, battery divider, buzzer, and touchscreen
+- ECDSA packet signing (`ECDSA_SIGNING_ENABLED` is false, so the log says `unsigned`)
 - Cellular modem on the gateway
-- MQ-6 LPG module. It is the chosen cheap leak sensor and it is not in the firmware yet. When it is added: module VCC to the devkit 5 V pin, GND to GND, AO to GPIO 1 through two 10 kΩ resistors (one from AO to GPIO 1, one from GPIO 1 to GND), DO left unconnected. Heater needs about 10–15 minutes after each power-up. The reading is a relative level, not %LEL
+- BME688 gas heater. Leave it off unless you accept a slower loop. With it off, gas resistance is 0 on purpose
+
+The Edge Impulse idle/walk model is linked and runs at most every 3 seconds. It does not raise the fall cue. Serial command `fall` starts the 10-second cancel window. GPIO 4, active low, cancels it.
+
+MQ-6 is in the firmware (`MQ6_ENABLED`). The count in the log is the ADC reading after the divider.
 
 ## Rules for the next session
 

@@ -16,9 +16,17 @@ On a new computer, read **[NEW-PC.md](NEW-PC.md)** before installing or flashing
 
 ## What is live
 
-- **Node A (wearable):** ESP32-S3 reads the SCD40 (CO₂, sensor temperature, humidity) and the BME688 (device air temperature, humidity, pressure, gas resistance) on the same I2C bus, then sends ESP-NOW to the gateway. Wi-Fi on this node is only for learning the gateway channel.
-- **Node B (gateway):** Receives ESP-NOW and POSTs JSON. Wi-Fi is the stand-in uplink until a cellular modem is installed.
+- **Node A (wearable):** ESP32-S3-DevKitC-1, wearer `FF-01`. Motion is sampled and sent about every 100 ms. Air sensors are polled on a slower non-blocking tick. Wi-Fi on this node is only for learning the gateway channel.
+  - SCD40 on GPIO 8/9: CO₂, sensor temperature, humidity.
+  - BME688 on GPIO 17/18: air temperature, humidity, pressure. The gas heater is forced off so a heater cycle cannot stall the 100 ms loop, so **gas resistance stays 0**. That 0 is not a gas reading.
+  - MAX30102 on GPIO 8/9: estimated heart rate and SpO₂ while a finger covers the glass. Not a clinical reading. See [Reading limits](#reading-limits).
+  - MPU-6050 on GPIO 8/9, **VCC on 3.3 V**: acceleration and gyro. Powering this module from 5 V pulls SDA/SCL above 3.3 V and locks the pulse sensor.
+  - MQ-6: heater on the devkit 5 V pin, analog output on GPIO 1 through a resistor divider. The log shows a raw ADC count, not %LEL.
+  - Edge Impulse idle/walk label, at most once every 3 seconds, after the packet is queued. Fall grace still uses the impact heuristic.
+- **Node B (gateway):** Receives ESP-NOW, prints JSON on USB, and can POST a link heartbeat to the hosted board. Live wearer packets reach the dashboard through the USB bridge, not through a direct ESP32 POST to the laptop.
 - **Web board:** `http://localhost:3000` from `web/`. Use `npm start` after `npm run build` for a test or demo. Use `npm run dev` only while editing the site. **Load sample crew** fills FF-01 and FF-02 with simulated packets so the layout can be reviewed without hardware.
+
+Packet path: Node A ESP-NOW → Node B USB serial → `web/serial-bridge.py` (local post and hosted post on background threads) → `POST /api/telemetry`. The API answers immediately and writes the log in the background. The board refreshes about twice a second.
 
 ## Placeholders
 
@@ -26,14 +34,12 @@ Slots exist. The parts are not installed, and the firmware does not probe a miss
 
 | Slot | Role | Flag |
 | --- | --- | --- |
-| BME688 `0x77` / `0x76` | Device air temperature, humidity, pressure, gas resistance. Not CO₂ and not core body temperature | `BME688_ENABLED` (driver linked) |
-| MPU-6050 `0x68` | Acceleration and gyro for the fall model | `MPU6050_ENABLED` |
 | GPS | A satellite fix, or a last-known point that is not the current position | `GPS_ENABLED` |
 | 2000 mAh LiPo gauge | Battery percent | `BATTERY_SENSE_ENABLED` |
 | Touchscreen and buzzer | Local grace prompt | `TOUCHSCREEN_INSTALLED`, `BUZZER_INSTALLED` |
-| Edge Impulse model | On-device fall inference | `predictFall()` returns false |
 | ECDSA P-256 | Sign the packet prefix. Not encryption | `ECDSA_SIGNING_ENABLED` |
 | Cellular modem | Planned gateway uplink | `CELLULAR_MODEM_INSTALLED` |
+| BME688 gas heater | Real gas resistance. Heater is off so the loop stays fast; the column reads 0 | `setGasHeater(0, 0)` in `features.cpp` |
 
 ## Router
 
@@ -62,7 +68,31 @@ Wearer id, telemetry URL, Node B MAC, and the ESP-NOW channel are still in:
 
 **Pin map (all boards, all modules):** see **[firmware/PINOUT.md](firmware/PINOUT.md)**.
 
-Summary for Node A: SCD40, MAX30102 (`0x57`, already wired, INT open), and MPU-6050 share **GPIO 8 (SDA)** and **GPIO 9 (SCL)**. The MAX30102 is detected when part ID `0x15` answers. Heart rate stays empty. By default the BME688 uses a **second I2C bus** on **GPIO 17 (SDA)** and **GPIO 18 (SCL)** so that sensor can use its own dupont wires (`BME688_SEPARATE_I2C_BUS` in `config.h`). GPS uses UART **15/16**; cancel button **GPIO 4**; see **PINOUT.md** for the full map.
+Summary for Node A: SCD40, MAX30102 (`0x57`, INT open), and MPU-6050 share **GPIO 8 (SDA)** and **GPIO 9 (SCL)**. GPIO 8 is SDA. GPIO 9 is SCL. By default the BME688 uses a **second I2C bus** on **GPIO 17 (SDA)** and **GPIO 18 (SCL)** (`BME688_SEPARATE_I2C_BUS` in `config.h`). MQ-6 analog is **GPIO 1**. GPS uses UART **15/16**. Cancel button is **GPIO 4**. The full map is **PINOUT.md**.
+
+## Reading limits
+
+These show up in the packet log and are properties of this firmware, not a broken dashboard column.
+
+- **Gas Ω = 0.** The BME688 heater is off. Temperature, humidity, and pressure on that row are still measured.
+- **Heart rate can jump from about 80 to about 160.** The detector treats a second bump in the same pulse (the dicrotic notch, motion, or a loose finger) as another beat. Intervals from 300 ms to 1500 ms are kept, so a doubled 80 bpm beat is stored as 160. A steady finger with one peak per beat stays near the real rate. It is an estimate.
+- **SpO₂** is `110 - 25 × (red/IR ratio)`. Values outside 70–100 are blank. 71 and 81 are that formula, not a medical oxygen reading.
+- **Red and infrared** are blank when the stored packet has no raw counts. Flash both nodes from this repo so the gateway forwards those fields.
+- **Duplicate rows** with the same sequence are the same packet stored twice. Sequence gaps are packets that did not make it through the radio or the bridge.
+- **Fall** stays `idle` unless the impact heuristic (or the serial command `fall`) opens the grace window. Gyro noise alone does not raise it.
+- **GPS** is `—` because no receiver is fitted. **Signature** is `unsigned` because signing is off.
+
+## Work landed on 15 Nov 2026 (PHT)
+
+These commits were made on this tree and were not on GitHub until this push. Older history on `master` was already there.
+
+- Wearable samples the MAX30102 (red + IR) and publishes an estimated heart rate and SpO₂.
+- After the SparkFun library opens `Wire`, GPIO 8 and 9 are restored so the SCD40 and MPU-6050 stay on the bus.
+- Heart rate is counted from infrared peaks, averaged over a short window.
+- The USB bridge starts with the local board and posts on background threads so a slow hosted request cannot stall the serial read.
+- Overview, sensors, wearer, and the packet log show pulse and raw light when the packet carries them.
+- Motion packets are no longer held back by Edge Impulse. Inference runs at most every 3 seconds, after the packet is sent.
+- The board cache, the telemetry write, and the page refresh were shortened so the log moves in about a second instead of minutes.
 
 ## Web app
 
@@ -74,9 +104,9 @@ The board is in `web/`. Run the commands in this section from that folder.
 
 For a test or a demo, serve the built site. `npm run dev` compiles each page the first time it is opened, so changing tabs is slow until that compile finishes.
 
-After the website code changes, build once, then start:
+After the website code changes, build once, then start. On Linux use the same two commands in bash:
 
-```powershell
+```bash
 npm run build
 npm start
 ```

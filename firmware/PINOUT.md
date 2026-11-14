@@ -132,6 +132,23 @@ The module is already on the wearable. It shares **GPIO 8 / 9** with the SCD40 a
 
 Address: **`0x57`**.
 
+The LED stays dim until `setup()` programs the LED current. If the bus was locked by another module, unplug the devkit USB so every sensor loses power, fix the wiring, plug USB back in, and press reset. Pressing reset alone leaves the MAX30102 latched.
+
+Heart rate is an infrared peak estimate. A second peak in the same beat (notch or motion) is reported near double the real rate, often an 80 to 160 jump. SpO₂ is a ratio estimate and is blank outside 70–100.
+
+---
+
+### MQ-6 (LPG, relative ADC)
+
+| MQ-6 pin | Connect to Node A |
+| --- | --- |
+| VCC | Devkit **5 V** (heater) |
+| GND | **GND** |
+| AO | **GPIO 1** through two 10 kΩ resistors: one from AO to GPIO 1, one from GPIO 1 to GND |
+| DO | Leave open |
+
+`MQ6_ENABLED` is true. The packet field is the raw ADC count, not a percent LEL. Allow about 10–15 minutes of heater warm-up after each power-up.
+
 ---
 
 ### MPU-6050 (accel / gyro)
@@ -140,12 +157,14 @@ The gyro shares **GPIO 8 / 9** with the SCD40. Leave the BME688 alone on **GPIO 
 
 | MPU-6050 pin | Connect to Node A |
 | --- | --- |
-| VCC | **5V** |
+| VCC | **3V3** |
 | GND | **GND** (blue stripe) |
 | SDA | **GPIO 8** (same row as the SCD40 SDA) |
 | SCL | **GPIO 9** (same row as the SCD40 SCL) |
 | AD0 | **GND** (address **`0x68`**) |
 | INT, XDA, XCL | Leave open |
+
+Do not power this module from the devkit **5 V** pin while SDA and SCL are shared with the MAX30102 and SCD40. The breakout pull-ups then hold the bus above 3.3 V. The pulse sensor NACKs (`MAX30102 0x57 no ack`), its LED stays dim, and the MPU writes fail. Use **3V3** for VCC.
 
 ---
 
@@ -220,7 +239,7 @@ Enable UI flags when fitted: `TOUCHSCREEN_INSTALLED`, and buzzer as needed.
 | **ESP-NOW** | Telemetry to Node B (`NODE_B_MAC` in `config.h`) |
 | **Wi-Fi STA** | Optional: join saved router to **learn RF channel** for ESP-NOW; not used to POST telemetry from the wearable |
 
-Sample period: **5 s** (`SAMPLE_INTERVAL_MS`).
+Motion packets: about every **100 ms** (`MOTION_INTERVAL_MS`). Slow air sensors are polled about every **5 s** and do not block those packets. Edge Impulse runs at most every **3 s**, after the packet is queued.
 
 ---
 
@@ -267,3 +286,4 @@ After Node B connects to Wi-Fi, serial log prints **channel** and **STA MAC**. S
 | 2026-10-30 | MPU-6050 SDA/SCL moved onto GPIO 8/9 with the SCD40 |
 | 2026-11-03 | MAX30102 recorded as wired on GPIO 8/9 with the SCD40 |
 | 2026-11-14 | MAX30102 samples red+IR and reports estimated BPM and SpO₂ |
+| 2026-11-15 | MPU-6050 VCC corrected to 3.3 V on GPIO 8/9. MQ-6 divider documented on GPIO 1. Motion cadence corrected to 100 ms. BME gas heater noted as off |
