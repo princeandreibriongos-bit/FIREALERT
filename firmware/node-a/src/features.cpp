@@ -522,6 +522,8 @@ static bool beginMax30102() {
     maxBusRestore();
     return false;
   }
+  // begin() calls Wire.begin() with no pins. Put GPIO 8/9 back before setup.
+  maxBusForSample();
   // ledMode 2 = red + IR. Estimates only; not a clinical reading.
   g_max30102.setup(0x1F, 4, 2, 100, 411, 4096);
   g_max30102.setPulseAmplitudeRed(0x1F);
