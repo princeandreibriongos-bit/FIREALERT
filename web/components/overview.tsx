@@ -14,9 +14,10 @@ function readingLine(row: {
   bme688: { temperature_c: number | null; humidity_rh: number | null; pressure_hpa: number | null; gas_resistance_ohm: number | null };
   mpu6050: { accel_g: { x: number | null; y: number | null; z: number | null } | null };
   mq6: { raw: number | null };
+  max30102: { heart_rate_bpm: number | null; spo2_percent: number | null; red: number | null; ir: number | null };
 }) {
   const gravity = vecMagnitude(row.mpu6050.accel_g);
-  return `CO₂ ${fmt(row.scd40.co2_ppm, 0, " ppm")} · SCD ${fmt(row.scd40.temperature_c, 1, " °C")} ${fmt(row.scd40.humidity_rh, 0, "%")} · BME ${fmt(row.bme688.temperature_c, 1, " °C")} ${fmt(row.bme688.humidity_rh, 0, "%")} ${fmt(row.bme688.pressure_hpa, 0, " hPa")} · gas ${fmt(row.bme688.gas_resistance_ohm, 0, " Ω")} · gyro ${fmt(gravity, 2, " g")} · MQ-6 ${fmt(row.mq6.raw, 0)}`;
+  return `HR ${fmt(row.max30102.heart_rate_bpm, 0, " bpm")} · SpO₂ ${fmt(row.max30102.spo2_percent, 0, "%")} · red ${fmt(row.max30102.red, 0)} · IR ${fmt(row.max30102.ir, 0)} · CO₂ ${fmt(row.scd40.co2_ppm, 0, " ppm")} · SCD ${fmt(row.scd40.temperature_c, 1, " °C")} ${fmt(row.scd40.humidity_rh, 0, "%")} · BME ${fmt(row.bme688.temperature_c, 1, " °C")} ${fmt(row.bme688.humidity_rh, 0, "%")} ${fmt(row.bme688.pressure_hpa, 0, " hPa")} · gas ${fmt(row.bme688.gas_resistance_ohm, 0, " Ω")} · gyro ${fmt(gravity, 2, " g")} · MQ-6 ${fmt(row.mq6.raw, 0)}`;
 }
 
 function fallLabel(state: string) {
@@ -116,6 +117,13 @@ export function Overview() {
             </Link>
           </div>
           <div className="metrics">
+            <Link className="metric" href="/sensors?sensor=max30102">
+              <p className="metric-label">MAX30102</p>
+              <p className="metric-value">{fmt(hardware.max30102.heart_rate_bpm, 0, " bpm")}</p>
+              <p className="metric-detail">
+                SpO₂ {fmt(hardware.max30102.spo2_percent, 0, "%")} · red {fmt(hardware.max30102.red, 0)} · IR {fmt(hardware.max30102.ir, 0)}
+              </p>
+            </Link>
             <Link className="metric" href="/sensors?sensor=scd40">
               <p className="metric-label">SCD40 CO₂</p>
               <p className="metric-value">{fmt(hardware.scd40.co2_ppm, 0, " ppm")}</p>

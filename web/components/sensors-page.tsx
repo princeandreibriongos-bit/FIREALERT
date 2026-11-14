@@ -9,6 +9,7 @@ import { useBoard } from "./board-provider";
 import { Badge, EmptyState, Metric, PageHeader } from "./ui";
 
 const SENSORS = [
+  { id: "max30102", label: "MAX30102" },
   { id: "scd40", label: "SCD40" },
   { id: "bme688", label: "BME688" },
   { id: "mpu6050", label: "MPU-6050" },
@@ -41,7 +42,49 @@ function mq6Note(raw: number | null) {
   return "Relative heater reading on a 0–4095 scale. It is not percent LEL.";
 }
 
+function lightNote(name: string, count: number | null) {
+  if (count == null) return `${name} is not in this packet yet. The longer gateway packet carries it.`;
+  if (count < 5000) return `${name} is at the empty-glass level. Cover the sensor.`;
+  return `${name} is high enough for a fingertip on the glass.`;
+}
+
+function pulseNote(packet: NormalizedTelemetry) {
+  if (!packet.max30102.installed) return "The MAX30102 is not answering at 0x57.";
+  if (packet.max30102.red == null && packet.max30102.ir == null) {
+    return "Heart rate and SpO₂ repeat the last average. Raw red and infrared are not in this packet yet.";
+  }
+  if ((packet.max30102.ir ?? 0) < 5000) {
+    return "Infrared is at the empty-glass level. The last average stays until a fingertip returns.";
+  }
+  return "Infrared is high enough for a fingertip. Heart rate and SpO₂ are averages and can lag these counts.";
+}
+
 function Readings({ packet, sensor }: { packet: NormalizedTelemetry; sensor: SensorId }) {
+  if (sensor === "max30102") {
+    const low = packet.max30102.spo2_percent != null && packet.max30102.spo2_percent < 90;
+    return (
+      <div className="stack">
+        <p className="fine">{pulseNote(packet)}</p>
+        <div className="metrics">
+          <Metric
+            label="Heart rate"
+            value={fmt(packet.max30102.heart_rate_bpm, 0, " bpm")}
+            detail="Average of recent beats. A new average can take a few seconds. Resting is often 60–100 bpm."
+          />
+          <Metric
+            label="Estimated SpO₂"
+            value={fmt(packet.max30102.spo2_percent, 0, "%")}
+            detail="Ratio estimate from red and infrared swing. Not a medical oximeter, and it can lag the raw counts."
+            tone={low ? "warn" : packet.max30102.installed ? "ok" : undefined}
+          />
+          <Metric label="Red count" value={fmt(packet.max30102.red, 0)} detail={lightNote("Red", packet.max30102.red)} />
+          <Metric label="Infrared count" value={fmt(packet.max30102.ir, 0)} detail={lightNote("Infrared", packet.max30102.ir)} />
+          <Metric label="Detected" value={packet.max30102.installed ? "Yes" : "No"} detail="A chip at 0x57 counts as detected. Raw counts need the longer packet." />
+        </div>
+      </div>
+    );
+  }
+
   if (sensor === "scd40") {
     const cue = co2Cue(packet.scd40.co2_ppm, packet.scd40.installed);
     const tone = cue === "high" ? "alert" : cue === "elevated" ? "warn" : packet.scd40.installed ? "ok" : undefined;
@@ -99,7 +142,7 @@ export function SensorsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const sensorParam = searchParams.get("sensor");
-  const sensor: SensorId = isSensor(sensorParam) ? sensorParam : "scd40";
+  const sensor: SensorId = isSensor(sensorParam) ? sensorParam : "max30102";
   const wearerParam = searchParams.get("wearer");
   const hardware = newestHardware(crew);
   const wearerId = wearerParam && crew.some((person) => person.wearer_id === wearerParam) ? wearerParam : hardware?.wearer_id ?? crew[0]?.wearer_id ?? "";

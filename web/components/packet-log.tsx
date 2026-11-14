@@ -47,6 +47,10 @@ export function PacketLog() {
       "gyro_y",
       "gyro_z",
       "mq6_raw",
+      "heart_rate_bpm",
+      "spo2_percent",
+      "max_red",
+      "max_ir",
       "fall",
       "gps",
       "signature",
@@ -72,6 +76,10 @@ export function PacketLog() {
         row.mpu6050.gyro_dps?.y == null ? "" : String(row.mpu6050.gyro_dps.y),
         row.mpu6050.gyro_dps?.z == null ? "" : String(row.mpu6050.gyro_dps.z),
         row.mq6.raw == null ? "" : String(row.mq6.raw),
+        row.max30102.heart_rate_bpm == null ? "" : String(row.max30102.heart_rate_bpm),
+        row.max30102.spo2_percent == null ? "" : String(row.max30102.spo2_percent),
+        row.max30102.red == null ? "" : String(row.max30102.red),
+        row.max30102.ir == null ? "" : String(row.max30102.ir),
         row.fall.state,
         row.gps.state,
         row.signature.status,
@@ -176,6 +184,10 @@ export function PacketLog() {
                 <th>Accel g</th>
                 <th>Gyro dps</th>
                 <th>MQ-6</th>
+                <th>Heart rate</th>
+                <th>SpO₂</th>
+                <th>Red</th>
+                <th>Infrared</th>
                 <th>Fall</th>
                 <th>GPS</th>
                 <th>Signature</th>
@@ -199,6 +211,10 @@ export function PacketLog() {
                   <td>{fmt(vecMagnitude(row.mpu6050.accel_g), 2)}</td>
                   <td>{vecText(row.mpu6050.gyro_dps, 1)}</td>
                   <td>{fmt(row.mq6.raw, 0)}</td>
+                  <td>{fmt(row.max30102.heart_rate_bpm, 0)}</td>
+                  <td>{fmt(row.max30102.spo2_percent, 0)}</td>
+                  <td>{fmt(row.max30102.red, 0)}</td>
+                  <td>{fmt(row.max30102.ir, 0)}</td>
                   <td>{row.fall.state === "distress" || row.fall.state === "possible" || row.fall.state === "grace" ? <Badge tone="alert">{row.fall.state}</Badge> : row.fall.state}</td>
                   <td>{row.gps.state === "none" ? "—" : row.gps.state === "fix" ? "fix" : "last known"}</td>
                   <td>{row.signature.status}</td>
