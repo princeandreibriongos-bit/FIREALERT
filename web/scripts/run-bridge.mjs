@@ -1,6 +1,6 @@
 /**
  * Start serial-bridge.py with a real Python, not the Windows Store stub.
- * Tries: py -3, then python, then the common Local\\Programs install path.
+ * Tries: py -3, then python3 (Linux), then python, then the Windows install path.
  */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -22,6 +22,7 @@ const localPython = path.join(
 /** @type {{ command: string, args: string[], shell?: boolean }[]} */
 const candidates = [
   { command: "py", args: ["-3", script, ...extraArgs] },
+  { command: "python3", args: [script, ...extraArgs] },
   { command: "python", args: [script, ...extraArgs] },
 ];
 
@@ -32,7 +33,7 @@ if (existsSync(localPython)) {
 function tryNext(index) {
   if (index >= candidates.length) {
     console.error(
-      "No working Python found. Install Python 3 from python.org and retry, or run:\n  py -3 serial-bridge.py",
+      "No working Python found. On Linux run: python3 serial-bridge.py\nOn Windows run: py -3 serial-bridge.py",
     );
     process.exit(1);
   }

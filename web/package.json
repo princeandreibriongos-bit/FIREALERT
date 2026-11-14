@@ -2,7 +2,7 @@
   "name": "firealert-web",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack --hostname 0.0.0.0 --port 3000",
+    "dev": "node scripts/dev-with-bridge.mjs",
     "dev:webpack": "next dev --hostname 0.0.0.0 --port 3000",
     "bridge": "node scripts/run-bridge.mjs",
     "test": "node --experimental-strip-types --test test/*.test.ts",

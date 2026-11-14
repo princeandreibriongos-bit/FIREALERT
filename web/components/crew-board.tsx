@@ -97,7 +97,7 @@ export function CrewBoard() {
 
       {loading ? <p className="fine">Connecting to telemetry…</p> : null}
       {!loading && crew.length === 0 ? (
-        <EmptyState title="Roster is empty" body="No wearable has checked in. Load the sample crew or connect the gateway." />
+        <EmptyState title="Roster is empty" body="No wearable packet has arrived yet. Leave both boards plugged in and keep this dev server running so it can read the gateway USB log." />
       ) : null}
       {!loading && crew.length > 0 && visible.length === 0 ? (
         <EmptyState title="No matching wearables" body="Try another filter or clear the search." />

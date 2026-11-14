@@ -87,17 +87,13 @@ The next time the computer starts, `npm start` is enough until the website code 
 
 While editing the site, stop `npm start` with Ctrl+C, then:
 
-```powershell
+```bash
 npm run dev
 ```
 
-In a second window, from `web/`, plug in the gateway and run:
+`npm run dev` starts the site and the USB bridge together. Plug in both boards first. The bridge reads the gateway serial port and posts each packet to `http://127.0.0.1:3000/api/telemetry`. The wearable is not opened by the site; it sends radio packets to the gateway. Close any serial monitor on the gateway port before starting, or the bridge cannot lock that port.
 
-```powershell
-npm run bridge
-```
-
-Leave the bridge window open. It forwards gateway serial to the hosted board and to `http://127.0.0.1:3000/api/telemetry`. Restart it after pulling bridge changes. One bridge only: a second copy cannot open the same COM port.
+`npm run bridge` still starts the bridge alone. One bridge only: a second copy cannot open the same port.
 
 The public landing page is open without login. Board routes (`/overview`, `/crew`, `/incidents`, and the rest of the shell) require a signed-in station account.
 

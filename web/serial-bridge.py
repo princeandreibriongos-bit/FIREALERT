@@ -17,8 +17,12 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-import serial
-from serial.tools import list_ports
+try:
+    import serial
+    from serial.tools import list_ports
+except ImportError:
+    print("pyserial is missing. Run: python3 -m pip install --user pyserial", flush=True)
+    raise SystemExit(1)
 
 LOCAL_ORIGIN = "http://127.0.0.1:3000"
 FALLBACK_HOSTED_ORIGIN = "https://firealert-three.vercel.app"
