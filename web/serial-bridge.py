@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import re
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -407,7 +409,7 @@ def push_router(ser: serial.Serial, state: dict) -> None:
         )
 
 
-def post_json(url: str, payload: dict) -> int:
+def post_json(url: str, payload: dict, timeout: float = 0.8) -> int:
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         url,
@@ -419,7 +421,7 @@ def post_json(url: str, payload: dict) -> int:
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=5) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.status
 
 
@@ -452,9 +454,76 @@ def link_payload(state: dict) -> dict[str, object]:
     return payload
 
 
+LOCAL_QUEUE: queue.Queue[tuple[str, dict, str]] = queue.Queue(maxsize=400)
+HOSTED_QUEUE: queue.Queue[tuple[str, dict]] = queue.Queue(maxsize=40)
+_WORKERS_STARTED = False
+
+
+def enqueue_nowait(target: queue.Queue, item: object) -> None:
+    try:
+        target.put_nowait(item)
+        return
+    except queue.Full:
+        pass
+    try:
+        target.get_nowait()
+        target.task_done()
+    except queue.Empty:
+        return
+    try:
+        target.put_nowait(item)
+    except queue.Full:
+        pass
+
+
+def local_worker() -> None:
+    while True:
+        kind, payload, note = LOCAL_QUEUE.get()
+        try:
+            if kind == "link":
+                status = post_json(LINK_URL, payload, timeout=0.8)
+                print(f"{note} HTTP {status}", flush=True)
+            else:
+                status = post_json(API_URL, payload, timeout=0.8)
+                print(f"forwarded seq={payload.get('sequence')} HTTP {status}", flush=True)
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            print(f"local post failed: {exc}", flush=True)
+        finally:
+            LOCAL_QUEUE.task_done()
+
+
+def hosted_worker() -> None:
+    while True:
+        kind, payload = HOSTED_QUEUE.get()
+        pending: list[tuple[str, dict]] = [(kind, payload)]
+        while len(pending) < 8:
+            try:
+                pending.append(HOSTED_QUEUE.get_nowait())
+            except queue.Empty:
+                break
+        for item_kind, item in pending:
+            url = LINK_URLS[0] if item_kind == "link" else API_URLS[0]
+            try:
+                post_json(url, item, timeout=0.8)
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                print(f"hosted post failed: {exc}", flush=True)
+            finally:
+                HOSTED_QUEUE.task_done()
+
+
+def start_workers() -> None:
+    global _WORKERS_STARTED
+    if _WORKERS_STARTED:
+        return
+    _WORKERS_STARTED = True
+    threading.Thread(target=local_worker, name="firealert-local", daemon=True).start()
+    threading.Thread(target=hosted_worker, name="firealert-hosted", daemon=True).start()
+
+
 def post_link_state(state: dict, note: str) -> None:
-    status = post_json(LINK_URL, link_payload(state))
-    print(f"{note} HTTP {status}", flush=True)
+    payload = link_payload(state)
+    enqueue_nowait(LOCAL_QUEUE, ("link", payload, note))
+    enqueue_nowait(HOSTED_QUEUE, ("link", payload))
 
 
 def post_heartbeat(match: re.Match[str], gateway: str, state: dict) -> None:
@@ -534,8 +603,8 @@ def apply_diag_line(text: str, state: dict) -> bool:
 
 
 def post_payload(obj: dict) -> None:
-    status = post_json(API_URL, obj)
-    print(f"forwarded seq={obj.get('sequence')} HTTP {status}", flush=True)
+    enqueue_nowait(LOCAL_QUEUE, ("telemetry", obj, ""))
+    enqueue_nowait(HOSTED_QUEUE, ("telemetry", obj))
 
 
 def fresh_router_state() -> dict:
@@ -613,11 +682,7 @@ def serve_port(port: str) -> None:
                 except json.JSONDecodeError:
                     print(f"skip bad json: {text[:80]}", flush=True)
                     continue
-                try:
-                    post_payload(obj)
-                except (urllib.error.URLError, TimeoutError, OSError) as exc:
-                    print(f"API post failed: {exc}", flush=True)
-                    time.sleep(1)
+                post_payload(obj)
     finally:
         try:
             ser.close()
@@ -626,6 +691,7 @@ def serve_port(port: str) -> None:
 
 
 def main() -> None:
+    start_workers()
     print("FIREALERT USB bridge — auto-detects the gateway COM port.", flush=True)
     print("Leave this window open. Unplug/replug or swap boards; it will re-find USB.", flush=True)
     while True:

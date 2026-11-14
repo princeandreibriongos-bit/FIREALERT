@@ -8,16 +8,15 @@ import { redisCommand, redisConfig } from "./redis-rest";
 import type { NormalizedTelemetry } from "./telemetry-core";
 
 /**
- * The previous namespace (firealert-makati-b81f3fd818ec) is stuck over the
- * free 10,000 requests/day cap, so every heartbeat written there was dropped.
- * This document is a fresh namespace. Writes are coalesced so one board plus
- * the gateway stay inside that cap.
+ * Live board document. Availability wins: a stale packet log is a miss.
+ * Bursts inside one process collapse into one write a few times a second.
+ * A failed write retries in about a second, not minutes.
  */
 const BOARD_URL = (process.env.FIREALERT_BOARD_URL || "").trim() || "https://mantledb.sh/v2/firealert-nmcfs-live/board";
-const READ_CACHE_MS = 25_000;
-const WRITE_GAP_MS = 25_000;
-const FAIL_BACKOFF_START_MS = 60_000;
-const FAIL_BACKOFF_MAX_MS = 15 * 60_000;
+const READ_CACHE_MS = 500;
+const LIVE_WRITE_MS = 250;
+const FAIL_BACKOFF_START_MS = 1_000;
+const FAIL_BACKOFF_MAX_MS = 4_000;
 const TELEMETRY_KEY = "firealert:telemetry";
 const LINK_KEY = "firealert:link";
 const INCIDENTS_KEY = "firealert:incidents";
@@ -38,8 +37,9 @@ let cache: { at: number; doc: SharedBoard } | null = null;
 let inflight: Promise<SharedBoard> | null = null;
 let pending: Record<string, unknown> = {};
 let chain: Promise<void> = Promise.resolve();
-let lastWriteSlot = -1;
+let lastWriteAt = 0;
 let writeBackoffUntil = 0;
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let readBackoffUntil = 0;
 let writeFailStreak = 0;
 let diskTried = false;
@@ -142,22 +142,39 @@ function armReadBackoff(): void {
   readBackoffUntil = Date.now() + FAIL_BACKOFF_START_MS;
 }
 
+function scheduleFlush(delayMs: number): void {
+  if (flushTimer) return;
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
+    const run = chain.then(flushPending);
+    chain = run.catch(() => undefined);
+  }, Math.max(20, delayMs));
+}
+
 async function flushPending(): Promise<void> {
   if (Object.keys(pending).length === 0) return;
   const now = Date.now();
-  const slot = Math.floor(now / WRITE_GAP_MS);
-  if (slot === lastWriteSlot || now < writeBackoffUntil) return;
+  if (now < writeBackoffUntil) {
+    scheduleFlush(writeBackoffUntil - now);
+    return;
+  }
+  const wait = LIVE_WRITE_MS - (now - lastWriteAt);
+  if (lastWriteAt !== 0 && wait > 0) {
+    scheduleFlush(wait);
+    return;
+  }
   const body = pending;
   pending = {};
   try {
     await patchBoard(body);
-    lastWriteSlot = slot;
+    lastWriteAt = Date.now();
     writeFailStreak = 0;
     writeBackoffUntil = 0;
     await saveDisk(cache?.doc);
   } catch (error) {
     pending = { ...body, ...pending };
     armWriteBackoff();
+    scheduleFlush(writeBackoffUntil - Date.now());
     console.error("[FIREALERT] shared log", error);
   }
 }

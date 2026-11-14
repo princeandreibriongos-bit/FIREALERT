@@ -66,10 +66,10 @@ async function noteGatewayFromPacket(entry: NormalizedTelemetry): Promise<void> 
   );
 }
 
-export async function saveTelemetry(raw: RawTelemetry | unknown, receivedAt = new Date().toISOString()): Promise<NormalizedTelemetry | null> {
-  const entry = logTelemetry(raw, receivedAt);
+/** Shared log and Postgres. The in-memory row is already visible before this finishes. */
+export async function commitTelemetry(entry: NormalizedTelemetry): Promise<void> {
   try {
-    if (entry) await noteGatewayFromPacket(entry);
+    await noteGatewayFromPacket(entry);
   } catch (error) {
     console.error("[FIREALERT] gateway link", error);
   }
@@ -79,11 +79,29 @@ export async function saveTelemetry(raw: RawTelemetry | unknown, receivedAt = ne
     console.error("[FIREALERT] shared log", error);
   }
   try {
-    if (entry) await persistTelemetryPacket(entry);
+    await persistTelemetryPacket(entry);
   } catch (error) {
     console.error("[FIREALERT] postgres telemetry", error);
   }
+}
+
+export async function saveTelemetry(raw: RawTelemetry | unknown, receivedAt = new Date().toISOString()): Promise<NormalizedTelemetry | null> {
+  const entry = logTelemetry(raw, receivedAt);
+  if (entry) await commitTelemetry(entry);
   return entry;
+}
+
+let remotePull: Promise<void> | null = null;
+
+function refreshFromRemote(kind: ReturnType<typeof boardBackend>): void {
+  if (remotePull) return;
+  remotePull = (async () => {
+    const remote = kind === "redis" ? (await readRedisBoard()).items : (await readSharedBoard()).items;
+    const merged = mergeTelemetry(listTelemetry(), remote);
+    if (merged.length) replaceTelemetry(merged);
+  })().finally(() => {
+    remotePull = null;
+  });
 }
 
 function mergeTelemetry(local: NormalizedTelemetry[], remote: NormalizedTelemetry[]): NormalizedTelemetry[] {
@@ -103,6 +121,12 @@ export async function readTelemetry(): Promise<NormalizedTelemetry[]> {
   const kind = boardBackend();
   const local = listTelemetry();
   if (kind === "memory") return local;
+  // Packets this process already accepted are the live log. A slow shared
+  // read must not freeze the packet log, sensors, or overview.
+  if (local.length > 0) {
+    refreshFromRemote(kind);
+    return local;
+  }
   try {
     const remote = kind === "redis" ? (await readRedisBoard()).items : (await readSharedBoard()).items;
     const merged = mergeTelemetry(local, remote);

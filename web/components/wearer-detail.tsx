@@ -294,7 +294,7 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
                 SpO₂ uses the swing of each color against its average: 110 − 25 × (red swing / red average) / (infrared swing / infrared average). Results outside 70–100 are dropped. A value near 80 can appear while the finger is still settling; a rested person is usually higher. It is a ratio estimate, not a medical oximeter, and a noisy window keeps the previous average.
               </p>
               <p className="card-note">
-                This page reloads the latest packet about every 2 seconds. Red and infrared in that packet are the newest sample. They stay blank until the gateway is flashed with the longer packet. Heart rate and SpO₂ still update from the packet already on the air.
+                This page reloads the latest packet about twice a second. Red and infrared in that packet are the newest sample. They stay blank until the gateway is flashed with the longer packet. Heart rate and SpO₂ still update from the packet already on the air.
               </p>
             </section>
           </div>

@@ -23,8 +23,7 @@ static void onEspNowSent(const uint8_t *mac, esp_now_send_status_t status) {
   (void)mac;
 #endif
   g_lastSendOk = status == ESP_NOW_SEND_SUCCESS;
-  FASerial.print("[node-a] ESP-NOW send ");
-  FASerial.println(g_lastSendOk ? "OK" : "FAIL");
+  if (!g_lastSendOk) FASerial.println("[node-a] ESP-NOW send FAIL");
 }
 
 static void setMaxRadioPower() {
@@ -248,6 +247,7 @@ void loop() {
     packet.flags |= FLAG_SIGNED;
   }
   sendPacket(packet);
+  eiActivityRunIfDue();
 
   if (now - lastLogMs >= 1000) {
     lastLogMs = now;

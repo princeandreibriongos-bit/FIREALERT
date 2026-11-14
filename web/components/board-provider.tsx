@@ -67,7 +67,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (onLanding) return;
     void refreshBoard();
-    const boardTimer = setInterval(() => void refreshBoard(), 2000);
+    const boardTimer = setInterval(() => void refreshBoard(), 500);
     const clock = setInterval(() => setNow(Date.now()), 1000);
     return () => {
       clearInterval(boardTimer);

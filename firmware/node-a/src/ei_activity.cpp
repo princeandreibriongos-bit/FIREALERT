@@ -11,6 +11,7 @@ static float g_features[EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE];
 static size_t g_samples = 0;
 static char g_label[12] = "";
 static float g_score = 0.0f;
+static uint32_t g_lastInferMs = 0;
 
 static int get_feature_data(size_t offset, size_t length, float *out_ptr) {
   memcpy(out_ptr, g_features + offset, length * sizeof(float));
@@ -58,10 +59,14 @@ void eiActivityPushSample(const WearableReadings &in) {
   g_features[base + 4] = in.gyro_y;
   g_features[base + 5] = in.gyro_z;
   g_samples++;
+}
 
-  if (g_samples >= EI_CLASSIFIER_RAW_SAMPLE_COUNT) {
-    runInference();
-  }
+void eiActivityRunIfDue() {
+  if (g_samples < EI_CLASSIFIER_RAW_SAMPLE_COUNT) return;
+  const uint32_t now = millis();
+  if (g_lastInferMs != 0 && now - g_lastInferMs < 3000) return;
+  g_lastInferMs = now;
+  runInference();
 }
 
 const char *eiActivityLabel() { return g_label; }

@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { readTelemetry, saveTelemetry, writeTelemetry } from "@/lib/telemetry-store";
+import { after, NextRequest, NextResponse } from "next/server";
+import { commitTelemetry, logTelemetry, readTelemetry, writeTelemetry } from "@/lib/telemetry-store";
 
 export const dynamic = "force-dynamic";
 
@@ -11,10 +11,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
   }
 
-  const saved = await saveTelemetry(body);
+  const saved = logTelemetry(body);
   if (!saved) {
     return NextResponse.json({ ok: false, error: "Expected a JSON object" }, { status: 400 });
   }
+  // The row is already in memory. Shared log and Postgres follow after the
+  // response so the USB bridge can take the next packet immediately.
+  after(() => commitTelemetry(saved));
 
   return NextResponse.json({
     ok: true,

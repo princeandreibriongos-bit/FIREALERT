@@ -97,12 +97,11 @@ export function readLink(): GatewayLink {
 }
 
 /**
- * Heartbeats are stored on a shared log that only allows about one write and
- * one read every 25 seconds. A check-in stays "connected" for 90 seconds so
- * that gap does not flip the pill off between real posts.
+ * A check-in stays "connected" for 90 seconds so one missed post does not
+ * flip the pill off. The packet log itself is not held back by this window.
  */
 const HEARTBEAT_FRESH_MS = 90_000;
-/** Packets share that same log budget. A few missed publishes still count as live. */
+/** A few missed packets still count as a live wearable. */
 const WEARABLE_FRESH_MS = 90_000;
 
 export type GatewayPhase = "up" | "down" | "stale" | "waiting";

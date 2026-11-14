@@ -601,9 +601,9 @@ static String networkConfigUrl() {
 static bool postHostedLink(const String &body) {
   WiFiClientSecure client;
   client.setInsecure();
-  client.setTimeout(2);
+  client.setTimeout(1);
   HTTPClient http;
-  http.setTimeout(2000);
+  http.setTimeout(700);
   if (!http.begin(client, String(HOSTED_LINK_URL))) return false;
   http.addHeader("Content-Type", "application/json");
   http.addHeader("User-Agent", "FIREALERT-gateway");
@@ -699,7 +699,7 @@ static void pollDashboardRouter() {
   lastMs = now;
 
   HTTPClient http;
-  http.setTimeout(4000);
+  http.setTimeout(700);
   const String url = networkConfigUrl();
   if (!http.begin(url)) return;
   const int status = http.GET();
@@ -745,11 +745,11 @@ static void postHostedTelemetry(const String &body) {
   if (now < nextMs || WiFi.status() != WL_CONNECTED) return;
   WiFiClientSecure client;
   client.setInsecure();
-  client.setTimeout(2);
+  client.setTimeout(1);
   HTTPClient http;
-  http.setTimeout(1500);
+  http.setTimeout(600);
   if (!http.begin(client, String(HOSTED_TELEMETRY_URL))) {
-    nextMs = now + 15000;
+    nextMs = now + 1000;
     return;
   }
   http.addHeader("Content-Type", "application/json");
@@ -758,11 +758,11 @@ static void postHostedTelemetry(const String &body) {
   const int status = http.POST(body);
   http.end();
   if (status >= 200 && status < 300) {
-    nextMs = now + 2000;
+    nextMs = now + 400;
     return;
   }
   FASerial.printf("[node-b] hosted telemetry HTTP %d\n", status);
-  nextMs = now + 15000;
+  nextMs = now + 1000;
 }
 
 static bool postDocument(JsonDocument &doc) {
@@ -986,7 +986,31 @@ void setup() {
   }
 }
 
+static int forwardQueued() {
+  int drained = 0;
+  while (drained < 12) {
+    QueuedPacket item;
+    if (!queuePop(item)) break;
+    drained++;
+    const uint8_t version = item.data[0];
+    bool posted = false;
+    if (version == TELEMETRY_VERSION) {
+      posted = postV2(item);
+    } else if (version == TELEMETRY_VERSION_V1) {
+      posted = postV1(item);
+    } else {
+      FASerial.printf("[node-b] drop packet version %u\n", version);
+      continue;
+    }
+    if (!posted) FASerial.println("[node-b] packet build failed; dropped");
+  }
+  return drained;
+}
+
 void loop() {
+  // Radio packets first. Wi-Fi upkeep must not sit in front of the log.
+  const int drained = forwardQueued();
+
   readRouterFromSerial();
   serviceWifi();
   pollDashboardRouter();
@@ -1009,23 +1033,5 @@ void loop() {
         g_detail);
   }
 
-  QueuedPacket item;
-  if (!queuePop(item)) {
-    delay(10);
-    return;
-  }
-
-  const uint8_t version = item.data[0];
-  bool posted = false;
-  if (version == TELEMETRY_VERSION) {
-    posted = postV2(item);
-  } else if (version == TELEMETRY_VERSION_V1) {
-    posted = postV1(item);
-  } else {
-    FASerial.printf("[node-b] drop packet version %u\n", version);
-    return;
-  }
-  if (!posted) {
-    FASerial.println("[node-b] packet build failed; dropped");
-  }
+  if (drained == 0) delay(5);
 }
