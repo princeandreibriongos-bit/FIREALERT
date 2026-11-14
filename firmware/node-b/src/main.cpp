@@ -545,6 +545,8 @@ static void addEmptySensors(JsonDocument &doc) {
   max30102["i2c_addr"] = "0x57";
   max30102["heart_rate_bpm"] = nullptr;
   max30102["spo2_percent"] = nullptr;
+  max30102["red"] = nullptr;
+  max30102["ir"] = nullptr;
 
   JsonObject mpu = doc["mpu6050"].to<JsonObject>();
   mpu["ok"] = false;
@@ -854,16 +856,19 @@ static bool postV2(const QueuedPacket &item) {
   appendNullableFloat(bme, "gas_resistance_ohm", packet.gas_resistance_ohm);
 
   JsonObject max30102 = doc["max30102"].to<JsonObject>();
-  max30102["ok"] = (packet.flags & FLAG_MAX30102_OK) != 0;
+  const bool maxOk = (packet.flags & FLAG_MAX30102_OK) != 0;
+  max30102["ok"] = maxOk;
   max30102["i2c_addr"] = "0x57";
   appendNullableFloat(max30102, "heart_rate_bpm", packet.heart_rate_bpm);
   appendNullableFloat(max30102, "spo2_percent", packet.spo2_percent);
-  if (packet.max_red == 0 && packet.max_ir == 0) {
-    max30102["red"] = nullptr;
-    max30102["ir"] = nullptr;
-  } else {
+  // Raw counts only exist on the longer packet. A short packet would otherwise
+  // look like an empty glass.
+  if (maxOk && item.len == sizeof(TelemetryPacket)) {
     max30102["red"] = packet.max_red;
     max30102["ir"] = packet.max_ir;
+  } else {
+    max30102["red"] = nullptr;
+    max30102["ir"] = nullptr;
   }
 
   JsonObject mpu = doc["mpu6050"].to<JsonObject>();

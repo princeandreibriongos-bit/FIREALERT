@@ -491,8 +491,8 @@ static void noteMaxSample(uint32_t red, uint32_t ir) {
   const float irDc = static_cast<float>(irSum) / kPulseWindow;
   const float redAc = static_cast<float>(redMax - redMin);
   const float irAc = static_cast<float>(irMax - irMin);
+  // A weak window keeps the last average. The finger-off path is what clears it.
   if (irDc < 5000.0f || redDc < 2000.0f || irAc < 50.0f || redAc < 30.0f) {
-    g_spo2 = NAN;
     return;
   }
   const float ratio = (redAc / redDc) / (irAc / irDc);

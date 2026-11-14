@@ -49,14 +49,20 @@ export function SensorStatus({
   bme688,
   mpu6050 = false,
   mq6 = false,
+  max30102 = false,
 }: {
   scd40: boolean;
   bme688: boolean;
   mpu6050?: boolean;
   mq6?: boolean;
+  max30102?: boolean;
 }) {
   return (
     <div className="sensor-row" aria-label="Sensor status">
+      <span className={`sensor-pill${max30102 ? " is-on" : ""}`}>
+        <i aria-hidden />
+        MAX30102 {max30102 ? "detected" : "not detected"}
+      </span>
       <span className={`sensor-pill${scd40 ? " is-on" : ""}`}>
         <i aria-hidden />
         SCD40 {scd40 ? "detected" : "not detected"}

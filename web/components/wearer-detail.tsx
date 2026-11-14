@@ -65,23 +65,28 @@ function pulsePlace(packet: NormalizedTelemetry) {
   if (!packet.max30102.installed) {
     return "The MAX30102 is not answering at 0x57. VIN stays on 3.3 V, SDA is GPIO 8, and SCL is GPIO 9.";
   }
-  if (packet.max30102.heart_rate_bpm == null && packet.max30102.spo2_percent == null) {
-    return "The chip is on and the red LED is lit. Cover the glass until the light glows through the skin. Heart rate and SpO₂ stay empty until a finger is there.";
+  const red = packet.max30102.red;
+  const ir = packet.max30102.ir;
+  if (red == null && ir == null) {
+    return "The chip is on. Heart rate and SpO₂ repeat the last average, which can lag a few seconds. Raw red and infrared are not in this packet yet.";
   }
-  return "A finger is on the glass. The two estimates below come from the latest red and infrared samples.";
+  if ((ir ?? 0) < 5000) {
+    return "Infrared is at the empty-glass level. Cover the sensor. The last average stays up until a fingertip returns.";
+  }
+  return "Infrared is high enough for a fingertip. These counts are the latest sample. Heart rate and SpO₂ are averages and can lag a few seconds.";
 }
 
 function heartDetail(packet: NormalizedTelemetry) {
   if (!packet.max30102.installed) return "MAX30102 not detected";
   if (packet.max30102.heart_rate_bpm == null) return "No beat yet. Hold still for about fifteen seconds.";
-  return "From infrared peak spacing. Resting is often 60–100 bpm.";
+  return "Average of recent beats. A new average can take a few seconds. Resting is often 60–100 bpm.";
 }
 
 function spo2Detail(packet: NormalizedTelemetry) {
   if (!packet.max30102.installed) return "MAX30102 not detected";
   if (packet.max30102.spo2_percent == null) return "Needs a covered finger and a red/infrared swing.";
   if (packet.max30102.spo2_percent < 90) return "Low ratio estimate. A rested person is usually higher.";
-  return "Ratio estimate from red and infrared swing.";
+  return "Average over the last light window. It can lag the raw counts.";
 }
 
 function spo2Tone(packet: NormalizedTelemetry): "warn" | undefined {
@@ -94,6 +99,26 @@ function lightDetail(name: string, count: number | null) {
   if (count == null) return `${name} count is not in this packet yet.`;
   if (count < 5000) return `${name} is at the empty-glass level. Cover the sensor.`;
   return `${name} is high enough for a fingertip on the glass.`;
+}
+
+function PulseStrip({ packet, title }: { packet: NormalizedTelemetry; title?: string }) {
+  return (
+    <div className="stack">
+      {title ? <h2 className="card-title">{title}</h2> : null}
+      <p className="fine">{pulsePlace(packet)}</p>
+      <div className="metrics">
+        <Metric label="Heart rate" value={fmt(packet.max30102.heart_rate_bpm, 0, " bpm")} detail={heartDetail(packet)} />
+        <Metric
+          label="Estimated SpO₂"
+          value={fmt(packet.max30102.spo2_percent, 0, "%")}
+          detail={spo2Detail(packet)}
+          tone={spo2Tone(packet)}
+        />
+        <Metric label="Red count" value={fmt(packet.max30102.red, 0)} detail={lightDetail("Red", packet.max30102.red)} />
+        <Metric label="Infrared count" value={fmt(packet.max30102.ir, 0)} detail={lightDetail("Infrared", packet.max30102.ir)} />
+      </div>
+    </div>
+  );
 }
 
 function hardwareBadge(installed: boolean, hasValue: boolean) {
@@ -202,11 +227,13 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
               bme688={packet.bme688.installed}
               mpu6050={packet.mpu6050.installed}
               mq6={packet.mq6.installed}
+              max30102={packet.max30102.installed}
             />
             <div className={`callout ${air.tone === "alert" ? "is-alert" : air.tone === "warn" ? "is-warn" : "is-ok"}`}>
               <p>{air.title}</p>
               <p className="fine">{air.detail}</p>
             </div>
+            <PulseStrip packet={packet} />
             <div className="metrics">
               <Metric
                 label="CO₂"
@@ -215,8 +242,6 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
                 tone={cue === "high" ? "alert" : cue === "elevated" ? "warn" : cue === "routine" ? "ok" : undefined}
               />
               <Metric label="BME temperature" value={fmt(packet.bme688.temperature_c, 1, " °C")} detail={packet.bme688.installed ? "Air at the device" : "BME688 not detected"} />
-              <Metric label="Heart rate" value={fmt(packet.max30102.heart_rate_bpm, 0, " bpm")} detail={heartDetail(packet)} />
-              <Metric label="Estimated SpO₂" value={fmt(packet.max30102.spo2_percent, 0, "%")} detail={spo2Detail(packet)} tone={spo2Tone(packet)} />
               <Metric label="Signal" value={fmt(packet.rssi_dbm, 0, " dBm")} detail={packet.gateway || "Gateway"} />
               <Metric
                 label="Motion"
@@ -232,6 +257,7 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
             <p className="fine">
               ECDSA checks authenticity and integrity when a wearable key is loaded. It does not encrypt telemetry. This prototype has no login.
             </p>
+            <PulseStrip packet={packet} title="MAX30102 on this wearable" />
             <div className="metrics">
               <Metric label="Gateway" value={packet.gateway || "—"} detail={`RSSI ${fmt(packet.rssi_dbm, 0, " dBm")}`} />
               <Metric label="Uplink" value={packet.uplink === "cellular" ? "Cellular" : "Wi-Fi stand-in"} detail={packet.cellular_ready ? "Modem ready" : "Modem not installed"} />
@@ -255,31 +281,20 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
               </p>
               {hardwareBadge(packet.max30102.installed, packet.max30102.heart_rate_bpm != null || packet.max30102.spo2_percent != null)}
             </div>
-            <p className="fine">{pulsePlace(packet)}</p>
-            <div className="metrics">
-              <Metric label="Heart rate" value={fmt(packet.max30102.heart_rate_bpm, 0, " bpm")} detail={heartDetail(packet)} />
-              <Metric
-                label="Estimated SpO₂"
-                value={fmt(packet.max30102.spo2_percent, 0, "%")}
-                detail={spo2Detail(packet)}
-                tone={spo2Tone(packet)}
-              />
-              <Metric label="Red count" value={fmt(packet.max30102.red, 0)} detail={lightDetail("Red", packet.max30102.red)} />
-              <Metric label="Infrared count" value={fmt(packet.max30102.ir, 0)} detail={lightDetail("Infrared", packet.max30102.ir)} />
-            </div>
+            <PulseStrip packet={packet} />
             <section className="card">
               <h2 className="card-title">What the raw light means</h2>
               <p className="card-note">
                 The chip shines a red LED and an infrared LED into the glass about 25 times a second. Each count is the reflected light for that flash. An empty glass stays near a few hundred. A fingertip drives the infrared count into the tens of thousands, and the red light glows through the skin.
               </p>
               <p className="card-note">
-                Heart rate is the time between infrared peaks. One sample is about 40 ms apart, and a gap of roughly 300–1500 ms becomes a beat. A resting adult is often 60–100 bpm. The number on this page is an average of those gaps.
+                Heart rate is the time between infrared peaks, averaged over the last few beats. One sample is about 40 ms apart, and a gap of roughly 300–1500 ms becomes a beat. A resting adult is often 60–100 bpm. That average can sit still for a few seconds while the raw counts move.
               </p>
               <p className="card-note">
-                SpO₂ uses the swing of each color against its average: 110 − 25 × (red swing / red average) / (infrared swing / infrared average). Results outside 70–100 are dropped. A value near 80 can appear while the finger is still settling; a rested person is usually higher. It is a ratio estimate, not a medical oximeter.
+                SpO₂ uses the swing of each color against its average: 110 − 25 × (red swing / red average) / (infrared swing / infrared average). Results outside 70–100 are dropped. A value near 80 can appear while the finger is still settling; a rested person is usually higher. It is a ratio estimate, not a medical oximeter, and a noisy window keeps the previous average.
               </p>
               <p className="card-note">
-                Red and infrared stay blank until this gateway build is receiving the longer packet. Heart rate and SpO₂ still update from the packet that is already on the air.
+                This page reloads the latest packet about every 2 seconds. Red and infrared in that packet are the newest sample. They stay blank until the gateway is flashed with the longer packet. Heart rate and SpO₂ still update from the packet already on the air.
               </p>
             </section>
           </div>
@@ -292,6 +307,7 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
               bme688={packet.bme688.installed}
               mpu6050={packet.mpu6050.installed}
               mq6={packet.mq6.installed}
+              max30102={packet.max30102.installed}
             />
             <div className={`callout ${air.tone === "alert" ? "is-alert" : air.tone === "warn" ? "is-warn" : "is-ok"}`}>
               <p>{air.title}</p>
@@ -300,6 +316,7 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
             <p className="fine">
               CO₂ comes from the SCD40 only. BME688 temperature is air at the device, not core body temperature, and that sensor does not measure CO₂. Cues are not certified gas alarms.
             </p>
+            <PulseStrip packet={packet} title="Wrist pulse, separate from the air sensors" />
             <div className="metrics">
               <Metric
                 label="CO₂"
@@ -338,6 +355,7 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
             {packet.mpu6050.installed ? null : (
               <p className="fine">MPU-6050 is not answering on GPIO 8 and 9.</p>
             )}
+            <PulseStrip packet={packet} title="Pulse beside the motion cue" />
             <div className="metrics">
               <Metric
                 label="Motion"
@@ -364,6 +382,7 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
                 <Badge tone="wait">No fix</Badge>
               )}
             </div>
+            <PulseStrip packet={packet} title="Pulse at this report" />
             <div className="metrics">
               <Metric label="Latitude" value={fmt(gps.latitude, 5)} />
               <Metric label="Longitude" value={fmt(gps.longitude, 5)} />

@@ -128,6 +128,7 @@ export function CrewBoard() {
                 bme688={person.bme688.installed}
                 mpu6050={person.mpu6050.installed}
                 mq6={person.mq6.installed}
+                max30102={person.max30102.installed}
               />
               <div className="stat-line">
                 <span>
@@ -136,6 +137,12 @@ export function CrewBoard() {
                 </span>
                 <span>
                   HR <b>{fmt(person.max30102.heart_rate_bpm, 0)}</b>
+                </span>
+                <span>
+                  SpO₂ <b>{fmt(person.max30102.spo2_percent, 0)}</b>
+                </span>
+                <span>
+                  IR <b>{fmt(person.max30102.ir, 0)}</b>
                 </span>
               </div>
               <p className="fine">{air.title}</p>
