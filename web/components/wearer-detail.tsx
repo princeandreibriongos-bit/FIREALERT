@@ -61,6 +61,41 @@ function co2Detail(packet: NormalizedTelemetry) {
   return "Routine prototype cue";
 }
 
+function pulsePlace(packet: NormalizedTelemetry) {
+  if (!packet.max30102.installed) {
+    return "The MAX30102 is not answering at 0x57. VIN stays on 3.3 V, SDA is GPIO 8, and SCL is GPIO 9.";
+  }
+  if (packet.max30102.heart_rate_bpm == null && packet.max30102.spo2_percent == null) {
+    return "The chip is on and the red LED is lit. Cover the glass until the light glows through the skin. Heart rate and SpO₂ stay empty until a finger is there.";
+  }
+  return "A finger is on the glass. The two estimates below come from the latest red and infrared samples.";
+}
+
+function heartDetail(packet: NormalizedTelemetry) {
+  if (!packet.max30102.installed) return "MAX30102 not detected";
+  if (packet.max30102.heart_rate_bpm == null) return "No beat yet. Hold still for about fifteen seconds.";
+  return "From infrared peak spacing. Resting is often 60–100 bpm.";
+}
+
+function spo2Detail(packet: NormalizedTelemetry) {
+  if (!packet.max30102.installed) return "MAX30102 not detected";
+  if (packet.max30102.spo2_percent == null) return "Needs a covered finger and a red/infrared swing.";
+  if (packet.max30102.spo2_percent < 90) return "Low ratio estimate. A rested person is usually higher.";
+  return "Ratio estimate from red and infrared swing.";
+}
+
+function spo2Tone(packet: NormalizedTelemetry): "warn" | undefined {
+  const value = packet.max30102.spo2_percent;
+  if (value != null && value < 90) return "warn";
+  return undefined;
+}
+
+function lightDetail(name: string, count: number | null) {
+  if (count == null) return `${name} count is not in this packet yet.`;
+  if (count < 5000) return `${name} is at the empty-glass level. Cover the sensor.`;
+  return `${name} is high enough for a fingertip on the glass.`;
+}
+
 function hardwareBadge(installed: boolean, hasValue: boolean) {
   if (!installed) return <Badge tone="wait">Awaiting hardware</Badge>;
   if (!hasValue) return <Badge tone="caution">No reading</Badge>;
@@ -180,8 +215,8 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
                 tone={cue === "high" ? "alert" : cue === "elevated" ? "warn" : cue === "routine" ? "ok" : undefined}
               />
               <Metric label="BME temperature" value={fmt(packet.bme688.temperature_c, 1, " °C")} detail={packet.bme688.installed ? "Air at the device" : "BME688 not detected"} />
-              <Metric label="Heart rate" value={fmt(packet.max30102.heart_rate_bpm, 0, " bpm")} />
-              <Metric label="Estimated SpO₂" value={fmt(packet.max30102.spo2_percent, 0, "%")} />
+              <Metric label="Heart rate" value={fmt(packet.max30102.heart_rate_bpm, 0, " bpm")} detail={heartDetail(packet)} />
+              <Metric label="Estimated SpO₂" value={fmt(packet.max30102.spo2_percent, 0, "%")} detail={spo2Detail(packet)} tone={spo2Tone(packet)} />
               <Metric label="Signal" value={fmt(packet.rssi_dbm, 0, " dBm")} detail={packet.gateway || "Gateway"} />
               <Metric
                 label="Motion"
@@ -213,17 +248,40 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
         ) : null}
 
         {tab === "physiology" ? (
-          <div role="tabpanel">
+          <div role="tabpanel" className="stack">
             <div className="card-head">
               <p className="fine" style={{ margin: 0 }}>
-                MAX30102 heart rate and estimated SpO₂. Not a clinical measurement, and not core temperature.
+                MAX30102 at 0x57 on GPIO 8 and 9. Heart rate and SpO₂ are estimates from red and infrared light, not a clinical reading and not core temperature.
               </p>
-              {hardwareBadge(packet.max30102.installed, packet.max30102.heart_rate_bpm != null)}
+              {hardwareBadge(packet.max30102.installed, packet.max30102.heart_rate_bpm != null || packet.max30102.spo2_percent != null)}
             </div>
+            <p className="fine">{pulsePlace(packet)}</p>
             <div className="metrics">
-              <Metric label="Heart rate" value={fmt(packet.max30102.heart_rate_bpm, 0, " bpm")} />
-              <Metric label="Estimated SpO₂" value={fmt(packet.max30102.spo2_percent, 0, "%")} />
+              <Metric label="Heart rate" value={fmt(packet.max30102.heart_rate_bpm, 0, " bpm")} detail={heartDetail(packet)} />
+              <Metric
+                label="Estimated SpO₂"
+                value={fmt(packet.max30102.spo2_percent, 0, "%")}
+                detail={spo2Detail(packet)}
+                tone={spo2Tone(packet)}
+              />
+              <Metric label="Red count" value={fmt(packet.max30102.red, 0)} detail={lightDetail("Red", packet.max30102.red)} />
+              <Metric label="Infrared count" value={fmt(packet.max30102.ir, 0)} detail={lightDetail("Infrared", packet.max30102.ir)} />
             </div>
+            <section className="card">
+              <h2 className="card-title">What the raw light means</h2>
+              <p className="card-note">
+                The chip shines a red LED and an infrared LED into the glass about 25 times a second. Each count is the reflected light for that flash. An empty glass stays near a few hundred. A fingertip drives the infrared count into the tens of thousands, and the red light glows through the skin.
+              </p>
+              <p className="card-note">
+                Heart rate is the time between infrared peaks. One sample is about 40 ms apart, and a gap of roughly 300–1500 ms becomes a beat. A resting adult is often 60–100 bpm. The number on this page is an average of those gaps.
+              </p>
+              <p className="card-note">
+                SpO₂ uses the swing of each color against its average: 110 − 25 × (red swing / red average) / (infrared swing / infrared average). Results outside 70–100 are dropped. A value near 80 can appear while the finger is still settling; a rested person is usually higher. It is a ratio estimate, not a medical oximeter.
+              </p>
+              <p className="card-note">
+                Red and infrared stay blank until this gateway build is receiving the longer packet. Heart rate and SpO₂ still update from the packet that is already on the air.
+              </p>
+            </section>
           </div>
         ) : null}
 

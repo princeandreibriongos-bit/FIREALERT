@@ -19,6 +19,8 @@ struct WearableReadings {
   bool max30102;
   float heart_rate_bpm;
   float spo2_percent;
+  uint32_t max_red;
+  uint32_t max_ir;
 
   bool mpu6050;
   float accel_x, accel_y, accel_z;

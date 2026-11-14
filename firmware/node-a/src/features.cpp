@@ -34,6 +34,8 @@ static uint32_t g_prevIr = 0;
 static uint32_t g_prev2Ir = 0;
 static uint8_t g_fingerMiss = 0;
 static uint32_t g_sampleClock = 0;
+static uint32_t g_lastRed = 0;
+static uint32_t g_lastIr = 0;
 static constexpr int kPulseWindow = 64;
 static uint32_t g_redWindow[kPulseWindow] = {};
 static uint32_t g_irWindow[kPulseWindow] = {};
@@ -528,6 +530,8 @@ static void sampleMax30102() {
     const uint32_t ir = g_max30102.getIR();
     g_max30102.nextSample();
     ++drained;
+    g_lastRed = red;
+    g_lastIr = ir;
     if (ir < 5000) {
       if (++g_fingerMiss > 15) {
         g_hrBpm = NAN;
@@ -590,6 +594,8 @@ static void readMax30102(WearableReadings &out) {
   out.max30102 = true;
   out.heart_rate_bpm = g_hrBpm;
   out.spo2_percent = g_spo2;
+  out.max_red = g_lastRed;
+  out.max_ir = g_lastIr;
 }
 
 static void mpuPinHigh(int pin) { pinMode(pin, INPUT_PULLUP); }
@@ -1247,6 +1253,8 @@ static void copyEnvironment(const WearableReadings &from, WearableReadings &to) 
     to.max30102 = true;
     to.heart_rate_bpm = from.heart_rate_bpm;
     to.spo2_percent = from.spo2_percent;
+    to.max_red = from.max_red;
+    to.max_ir = from.max_ir;
   }
   if (from.gps_fix || from.gps_last_known) {
     to.gps_fix = from.gps_fix;
@@ -1286,6 +1294,8 @@ void featuresRead(WearableReadings &out) {
     out.max30102 = true;
     out.heart_rate_bpm = g_hrBpm;
     out.spo2_percent = g_spo2;
+    out.max_red = g_lastRed;
+    out.max_ir = g_lastIr;
   }
   readMpu6050(out);
   readMq6(out);

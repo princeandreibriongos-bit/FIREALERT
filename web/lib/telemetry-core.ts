@@ -26,6 +26,8 @@ export type RawTelemetry = {
     ok?: boolean;
     heart_rate_bpm?: number | null;
     spo2_percent?: number | null;
+    red?: number | null;
+    ir?: number | null;
   };
   bme688?: {
     ok?: boolean;
@@ -78,7 +80,13 @@ export type NormalizedTelemetry = {
   timestamp_ms: number | null;
   signature: { alg: string; hex: string | null; prefix_hex: string | null; status: SignatureStatus };
   battery: { installed: boolean; percent: number | null; voltage_v: number | null };
-  max30102: { installed: boolean; heart_rate_bpm: number | null; spo2_percent: number | null };
+  max30102: {
+    installed: boolean;
+    heart_rate_bpm: number | null;
+    spo2_percent: number | null;
+    red: number | null;
+    ir: number | null;
+  };
   bme688: {
     installed: boolean;
     temperature_c: number | null;
@@ -234,6 +242,8 @@ export function normalizeTelemetry(
       installed: maxOn,
       heart_rate_bpm: installedReading(maxOn, max.heart_rate_bpm),
       spo2_percent: installedReading(maxOn, max.spo2_percent),
+      red: installedReading(maxOn, max.red),
+      ir: installedReading(maxOn, max.ir),
     },
     bme688: {
       installed: bmeOn,

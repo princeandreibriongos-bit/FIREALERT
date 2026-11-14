@@ -40,6 +40,8 @@ describe("telemetry", () => {
     });
     assert.equal(entry.max30102.installed, false);
     assert.equal(entry.max30102.heart_rate_bpm, null);
+    assert.equal(entry.max30102.red, null);
+    assert.equal(entry.max30102.ir, null);
     assert.equal(entry.bme688.installed, false);
     assert.equal(entry.bme688.gas_resistance_ohm, null);
     assert.equal(entry.scd40.co2_ppm, 800);
@@ -51,6 +53,17 @@ describe("telemetry", () => {
     assert.equal(entry.signature.status, "unsigned");
     assert.equal(entry.uplink, "wifi");
     assert.equal(entry.cellular_ready, false);
+  });
+
+  it("keeps the MAX30102 pulse and the raw light counts", () => {
+    const entry = sample({
+      max30102: { ok: true, heart_rate_bpm: 80.4, spo2_percent: 81.3, red: 12000, ir: 48000 },
+    });
+    assert.equal(entry.max30102.installed, true);
+    assert.equal(entry.max30102.heart_rate_bpm, 80.4);
+    assert.equal(entry.max30102.spo2_percent, 81.3);
+    assert.equal(entry.max30102.red, 12000);
+    assert.equal(entry.max30102.ir, 48000);
   });
 
   it("does not treat a last-known GPS point as the current fix", () => {

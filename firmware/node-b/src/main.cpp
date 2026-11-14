@@ -813,13 +813,13 @@ static bool postV1(const QueuedPacket &item) {
 }
 
 static bool postV2(const QueuedPacket &item) {
-  if (item.len != sizeof(TelemetryPacket)) {
+  if (item.len != sizeof(TelemetryPacket) && item.len != TELEMETRY_V2_LEGACY_SIZE) {
     FASerial.printf("[node-b] v2 length %u, expected %u\n", item.len,
                   static_cast<unsigned>(sizeof(TelemetryPacket)));
     return false;
   }
   TelemetryPacket packet = {};
-  memcpy(&packet, item.data, sizeof(packet));
+  memcpy(&packet, item.data, item.len);
 
   char wearer[sizeof(packet.wearer_id) + 1] = {};
   memcpy(wearer, packet.wearer_id, sizeof(packet.wearer_id));
@@ -858,6 +858,13 @@ static bool postV2(const QueuedPacket &item) {
   max30102["i2c_addr"] = "0x57";
   appendNullableFloat(max30102, "heart_rate_bpm", packet.heart_rate_bpm);
   appendNullableFloat(max30102, "spo2_percent", packet.spo2_percent);
+  if (packet.max_red == 0 && packet.max_ir == 0) {
+    max30102["red"] = nullptr;
+    max30102["ir"] = nullptr;
+  } else {
+    max30102["red"] = packet.max_red;
+    max30102["ir"] = packet.max_ir;
+  }
 
   JsonObject mpu = doc["mpu6050"].to<JsonObject>();
   const bool mpuOk = (packet.flags & FLAG_MPU6050_OK) != 0;

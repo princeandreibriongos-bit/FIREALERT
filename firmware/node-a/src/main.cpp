@@ -182,6 +182,8 @@ static void fillPacket(TelemetryPacket &packet, const WearableReadings &in) {
   applyFloat(&packet.gas_resistance_ohm, in.bme688, in.gas_resistance_ohm);
   applyFloat(&packet.heart_rate_bpm, in.max30102, in.heart_rate_bpm);
   applyFloat(&packet.spo2_percent, in.max30102, in.spo2_percent);
+  packet.max_red = in.max30102 ? in.max_red : 0;
+  packet.max_ir = in.max30102 ? in.max_ir : 0;
   applyFloat(&packet.accel_x, in.mpu6050, in.accel_x);
   applyFloat(&packet.accel_y, in.mpu6050, in.accel_y);
   applyFloat(&packet.accel_z, in.mpu6050, in.accel_z);
