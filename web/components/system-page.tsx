@@ -14,8 +14,8 @@ const LIMITS = [
     body: "ESP-NOW is one wearable-to-gateway hop, not an automatic mesh. The cellular modem is not installed. Wi-Fi is the stand-in uplink.",
   },
   {
-    title: "Fall model is empty",
-    body: "Fall detection is a grace-period state machine. The TinyML slot is empty, so motion alone will not raise a cue.",
+    title: "Fall cue is a review, not a confirmation",
+    body: "The wrist score is WEDA-FALL magnitudes over the last 3 seconds. At 72% or higher the board opens a 10-second cancel window. Ordinary movement can still raise it. The impact check and the serial command fall can open that window too.",
   },
   {
     title: "Not clinically measured",
