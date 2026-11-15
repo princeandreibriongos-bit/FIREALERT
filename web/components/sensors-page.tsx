@@ -54,7 +54,7 @@ function pulseNote(packet: NormalizedTelemetry) {
     return "Heart rate and SpO₂ repeat the last average. Raw red and infrared are not in this packet yet.";
   }
   if ((packet.max30102.ir ?? 0) < 5000) {
-    return "Infrared is at the empty-glass level. The last average stays until a fingertip returns.";
+    return "Infrared is at the empty-glass level. Heart rate and SpO₂ clear when the thumb leaves.";
   }
   return "Infrared is high enough for a fingertip. Heart rate and SpO₂ are averages and can lag these counts.";
 }

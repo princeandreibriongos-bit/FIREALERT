@@ -36,7 +36,7 @@ static float g_beatWindow[4] = {};
 static uint8_t g_beatCount = 0;
 static uint32_t g_prevIr = 0;
 static uint32_t g_prev2Ir = 0;
-static uint8_t g_fingerMiss = 0;
+static uint32_t g_lastFingerMs = 0;
 static uint32_t g_sampleClock = 0;
 static uint32_t g_lastRed = 0;
 static uint32_t g_lastIr = 0;
@@ -659,13 +659,26 @@ static void noteMaxSample(uint32_t red, uint32_t ir) {
   if (intervals > 0) g_hrBpm = bpmSum / static_cast<float>(intervals);
 }
 
+static void clearPulseReadings() {
+  g_hrBpm = NAN;
+  g_spo2 = NAN;
+  g_lastBeatMs = 0;
+  g_beatCount = 0;
+  g_pulseFill = 0;
+  g_prevIr = 0;
+  g_prev2Ir = 0;
+  g_sampleClock = 0;
+  g_lastFingerMs = 0;
+}
+
 static void sampleMax30102() {
   if (!g_max30102Sampling) return;
   maxBusForSample();
   g_max30102.check();
   const uint32_t now = millis();
   int drained = 0;
-  while (g_max30102.available() && drained < 25) {
+  // Empty the FIFO in this pass so leftover fingertip samples cannot keep the old average.
+  while (g_max30102.available() && drained < 32) {
     const uint32_t red = g_max30102.getRed();
     const uint32_t ir = g_max30102.getIR();
     g_max30102.nextSample();
@@ -673,24 +686,16 @@ static void sampleMax30102() {
     g_lastRed = red;
     g_lastIr = ir;
     if (ir < 5000) {
-      if (++g_fingerMiss > 15) {
-        g_hrBpm = NAN;
-        g_spo2 = NAN;
-        g_lastBeatMs = 0;
-        g_beatCount = 0;
-        g_pulseFill = 0;
-        g_prevIr = 0;
-        g_prev2Ir = 0;
-        g_sampleClock = 0;
-      }
+      clearPulseReadings();
       continue;
     }
-    g_fingerMiss = 0;
+    g_lastFingerMs = now;
     noteMaxSample(red, ir);
     if (g_sampleClock == 0 || now > g_sampleClock + 500) g_sampleClock = now;
     else g_sampleClock += 40;
     noteIrPeak(ir, g_sampleClock);
   }
+  if (g_lastFingerMs != 0 && now - g_lastFingerMs > 400) clearPulseReadings();
   maxBusRestore();
 }
 
@@ -722,7 +727,7 @@ static bool beginMax30102() {
   g_lastBeatMs = 0;
   g_prevIr = 0;
   g_prev2Ir = 0;
-  g_fingerMiss = 0;
+  g_lastFingerMs = 0;
   g_sampleClock = 0;
   FASerial.println("[node-a] MAX30102 sampling red+IR");
   maxBusRestore();

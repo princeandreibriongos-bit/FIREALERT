@@ -71,14 +71,14 @@ function pulsePlace(packet: NormalizedTelemetry) {
     return "The chip is on. Heart rate and SpO₂ repeat the last average, which can lag a few seconds. Raw red and infrared are not in this packet yet.";
   }
   if ((ir ?? 0) < 5000) {
-    return "Infrared is at the empty-glass level. Cover the sensor. The last average stays up until a fingertip returns.";
+    return "Infrared is at the empty-glass level. Heart rate and SpO₂ clear as soon as the thumb leaves.";
   }
   return "Infrared is high enough for a fingertip. These counts are the latest sample. Heart rate and SpO₂ are averages and can lag a few seconds.";
 }
 
 function heartDetail(packet: NormalizedTelemetry) {
   if (!packet.max30102.installed) return "MAX30102 not detected";
-  if (packet.max30102.heart_rate_bpm == null) return "No beat yet. Hold still for about fifteen seconds.";
+  if (packet.max30102.heart_rate_bpm == null) return "No beat yet. Cover the glass and hold still.";
   return "Average of recent beats. A new average can take a few seconds. Resting is often 60–100 bpm.";
 }
 
@@ -289,10 +289,10 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
                 The chip shines a red LED and an infrared LED into the glass about 25 times a second. Each count is the reflected light for that flash. An empty glass stays near a few hundred. A fingertip drives the infrared count into the tens of thousands, and the red light glows through the skin.
               </p>
               <p className="card-note">
-                Heart rate is the time between infrared peaks, averaged over the last few beats. One sample is about 40 ms apart, and a gap of roughly 300–1500 ms becomes a beat. A resting adult is often 60–100 bpm. That average can sit still for a few seconds while the raw counts move.
+                Heart rate is the time between infrared peaks, averaged over the last few beats. One sample is about 40 ms apart, and a gap of roughly 300–1500 ms becomes a beat. A resting adult is often 60–100 bpm. Lifting the thumb clears the average on the next packet.
               </p>
               <p className="card-note">
-                SpO₂ uses the swing of each color against its average: 110 − 25 × (red swing / red average) / (infrared swing / infrared average). Results outside 70–100 are dropped. A value near 80 can appear while the finger is still settling; a rested person is usually higher. It is a ratio estimate, not a medical oximeter, and a noisy window keeps the previous average.
+                SpO₂ uses the swing of each color against its average: 110 − 25 × (red swing / red average) / (infrared swing / infrared average). Results outside 70–100 are dropped. A value near 80 can appear while the finger is still settling; a rested person is usually higher. It is a ratio estimate, not a medical oximeter. It clears when the thumb leaves the glass.
               </p>
               <p className="card-note">
                 This page reloads the latest packet about twice a second. Red and infrared in that packet are the newest sample. They stay blank until the gateway is flashed with the longer packet. Heart rate and SpO₂ still update from the packet already on the air.
