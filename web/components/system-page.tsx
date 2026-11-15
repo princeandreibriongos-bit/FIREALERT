@@ -18,6 +18,10 @@ const LIMITS = [
     body: "The wrist score is WEDA-FALL magnitudes over the last 3 seconds. At 72% or higher the board opens a 10-second cancel window. Ordinary movement can still raise it. The impact check and the serial command fall can open that window too.",
   },
   {
+    title: "Motion class is idle, walk, or run",
+    body: "The same 3-second wrist window is labeled from the mHealth right-wrist recordings: standing, sitting, or lying as Idle, walking as Walk, and jogging or running as Run. It is not a firefighter-specific gait model.",
+  },
+  {
     title: "Not clinically measured",
     body: "Heart rate and estimated SpO₂ are not clinical measurements. Device temperature is air at the sensor, not core body temperature.",
   },

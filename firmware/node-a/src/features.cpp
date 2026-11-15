@@ -13,9 +13,12 @@
 
 #include "config.h"
 #include "dual_serial.h"
+#include "activity_model.h"
 #include "ei_activity.h"
 #include "weda_fall.h"
 #include "wifi_store.h"
+
+static_assert(WEDA_WINDOW == ACTIVITY_WINDOW, "fall and locomotion share one 30-sample ring");
 
 static SensirionI2cScd4x g_scd4x;
 static TwoWire g_bme688Wire = TwoWire(1);
@@ -179,6 +182,8 @@ static int g_wedaFill = 0;
 static int g_wedaNext = 0;
 static float g_wedaScore = -1.0f;
 static bool g_wedaHot = false;
+static char g_activity[8] = "";
+static float g_activityScore = 0.0f;
 
 static bool captureLabelOk(const char *label) {
   return strcasecmp(label, "idle") == 0 || strcasecmp(label, "walk") == 0 || strcasecmp(label, "fall") == 0 ||
@@ -241,6 +246,7 @@ static void noteWeda(const WearableReadings &in) {
     orderedG[i] = g_wedaGyro[index];
   }
   g_wedaScore = wedaFallScore(orderedA, orderedG, WEDA_WINDOW);
+  activityPredict(orderedA, orderedG, WEDA_WINDOW, g_activity, sizeof(g_activity), &g_activityScore);
   const bool hot = g_wedaScore >= WEDA_THRESHOLD;
   if (hot && !g_wedaHot) FASerial.printf("[node-a] weda-fall score=%.2f\n", g_wedaScore);
   g_wedaHot = hot;
@@ -248,11 +254,13 @@ static void noteWeda(const WearableReadings &in) {
 
 const char *featuresMotionLabel() {
   if (g_wedaFill < WEDA_WINDOW) return "";
-  return g_wedaHot ? "fall" : "clear";
+  if (g_wedaHot) return "fall";
+  return g_activity[0] ? g_activity : "clear";
 }
 
 float featuresMotionScore() {
-  return g_wedaFill < WEDA_WINDOW ? 0.0f : g_wedaScore;
+  if (g_wedaFill < WEDA_WINDOW) return 0.0f;
+  return g_wedaHot ? g_wedaScore : g_activityScore;
 }
 
 // Freefall→impact still opens grace. The wrist score can open it too.
@@ -1271,7 +1279,7 @@ void featuresBegin() {
                 BME688_ENABLED, MAX30102_ENABLED, MPU6050_ENABLED, GPS_ENABLED, BATTERY_SENSE_ENABLED,
                 TOUCHSCREEN_INSTALLED, BUZZER_INSTALLED, ECDSA_SIGNING_ENABLED, FALL_MODEL_ID);
   FASerial.println("[node-a] serial commands: fall | rec idle | rec walk | rec fall | rec off");
-  FASerial.println("[node-a] wrist fall score is WEDA-FALL magnitudes");
+  FASerial.println("[node-a] wrist fall score is WEDA-FALL; motion class is idle, walk, or run");
 }
 
 static void retryMissingSensors() {

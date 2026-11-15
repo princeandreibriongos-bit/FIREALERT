@@ -61,7 +61,7 @@ void wearableWifiNoteConnected();
 bool featuresSign(TelemetryPacket &packet);
 /** Active dataset label during a "rec idle|walk|fall|run|jump" take, or "". */
 const char *featuresCaptureLabel();
-/** "fall", "clear", or "" while the wrist window is still filling. */
+/** "fall", "idle", "walk", "run", "clear", or "" while the wrist window is still filling. */
 const char *featuresMotionLabel();
 /** 0..1 once the wrist window is full, otherwise 0. */
 float featuresMotionScore();

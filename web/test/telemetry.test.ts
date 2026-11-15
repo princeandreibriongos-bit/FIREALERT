@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createSign, generateKeyPairSync } from "node:crypto";
 import { describe, it } from "node:test";
+import { activityScore } from "../lib/activity-model.ts";
 import { parseIncidentInput } from "../lib/incidents.ts";
 import { osrmUrl, parseOsrm } from "../lib/routing.ts";
 import {
@@ -226,8 +228,8 @@ describe("weda fall score", () => {
     let quiet = post(still, "idle");
     for (let i = 0; i < 29; i++) quiet = post(still, "idle");
     assert.equal(quiet.fallState, "idle");
-    assert.equal(quiet.activityLabel, "clear");
-    assert.ok((quiet.activityScore ?? 1) < WEDA_THRESHOLD);
+    assert.equal(quiet.activityLabel, "idle");
+    assert.ok((quiet.activityScore ?? 0) >= 0.45);
 
     let hit = post(still, "idle");
     for (let i = 0; i < 29; i++) {
@@ -242,6 +244,27 @@ describe("weda fall score", () => {
     const distress = post(still, "distress");
     assert.equal(distress.fallState, "distress");
     assert.equal(distress.model, "none");
+  });
+});
+
+describe("wrist locomotion", () => {
+  function bout(path: string) {
+    const lines = readFileSync(path, "utf8").trim().split("\n").slice(1, 31);
+    return lines.map((line) => {
+      const [timestamp, ax, ay, az, gx, gy, gz] = line.split(",");
+      void timestamp;
+      return { ax: Number(ax), ay: Number(ay), az: Number(az), gx: Number(gx), gy: Number(gy), gz: Number(gz) };
+    });
+  }
+
+  it("labels a held-out wrist bout as idle, walk, or run", () => {
+    const root = new URL("../../datasets/mhealth/10hz/", import.meta.url);
+    const idle = activityScore(bout(new URL("idle/s05_stand_01.csv", root).pathname));
+    const walk = activityScore(bout(new URL("walk/s05_walk_04.csv", root).pathname));
+    const run = activityScore(bout(new URL("run/s05_run_06.csv", root).pathname));
+    assert.equal(idle?.label, "idle");
+    assert.equal(walk?.label, "walk");
+    assert.equal(run?.label, "run");
   });
 });
 
