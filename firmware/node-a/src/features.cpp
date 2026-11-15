@@ -45,6 +45,7 @@ static uint32_t g_redWindow[kPulseWindow] = {};
 static uint32_t g_irWindow[kPulseWindow] = {};
 static uint8_t g_pulseFill = 0;
 static bool g_mpu6050Ready = false;
+static uint8_t g_mpuMisses = 0;
 static uint8_t g_mpuAddr = MPU6050_I2C_ADDR;
 static int g_mpuSda = 40;
 static int g_mpuScl = 41;
@@ -123,6 +124,51 @@ static void scanI2C(TwoWire &bus, int sda, int scl, const char *label);
 static void runSensorScan();
 static void restoreBmeBus();
 static void noteCaptureCommand(const char *line);
+
+static void busPinHigh(int pin) { pinMode(pin, INPUT_PULLUP); }
+
+static void busPinLow(int pin) {
+  digitalWrite(pin, LOW);
+  pinMode(pin, OUTPUT);
+}
+
+// A slave that died mid-byte holds SDA low until something clocks SCL and sends STOP.
+// Wire.end() drops the peripheral so the pins can be toggled, then Wire is put back on GPIO 8/9.
+static bool recoverSharedBus() {
+  Wire.end();
+  const int sda = I2C_SDA_PIN;
+  const int scl = I2C_SCL_PIN;
+  busPinHigh(sda);
+  busPinHigh(scl);
+  delay(2);
+  if (digitalRead(scl) == LOW) {
+    FASerial.println("[node-a] GPIO 9 is held low. Unplug USB. MPU VCC must be 3V3, not 5V");
+  } else {
+    for (int pulse = 0; pulse < 16 && digitalRead(sda) == LOW; ++pulse) {
+      busPinLow(scl);
+      delayMicroseconds(10);
+      busPinHigh(scl);
+      delayMicroseconds(10);
+    }
+    busPinLow(sda);
+    delayMicroseconds(10);
+    busPinHigh(scl);
+    delayMicroseconds(10);
+    busPinHigh(sda);
+    delayMicroseconds(10);
+  }
+  const int sdaLevel = digitalRead(sda);
+  const int sclLevel = digitalRead(scl);
+  Wire.begin(sda, scl, SHARED_I2C_HZ);
+  Wire.setClock(SHARED_I2C_HZ);
+  Wire.setTimeOut(80);
+  if (sdaLevel == HIGH && sclLevel == HIGH) {
+    FASerial.println("[node-a] GPIO 8/9 idle");
+    return true;
+  }
+  FASerial.printf("[node-a] GPIO 8/9 still down SDA=%d SCL=%d\n", sdaLevel, sclLevel);
+  return false;
+}
 
 // A shorted or clock-stretched line makes Wire.endTransmission() wait forever
 // on this core. Clock the bus, then refuse to start I2C if a line is still low.
@@ -657,7 +703,8 @@ static bool beginMax30102() {
   maxBusForSample();
   if (!g_max30102.begin(Wire, I2C_SPEED_STANDARD, MAX30102_I2C_ADDR)) {
     FASerial.printf("[node-a] MAX30102 0x%02X no ack on SDA=%d SCL=%d\n", MAX30102_I2C_ADDR, I2C_SDA_PIN, I2C_SCL_PIN);
-    maxBusRestore();
+    // begin() calls Wire.begin() with no pins. Put GPIO 8/9 back or the SCD40 and MPU disappear too.
+    recoverSharedBus();
     return false;
   }
   // begin() calls Wire.begin() with no pins. Put GPIO 8/9 back before setup.
@@ -1158,9 +1205,20 @@ static void readMpu6050(WearableReadings &out) {
   if (!g_mpu6050Ready) return;
   const bool got = readMpuSample(out);
   if (g_mpuHw) restoreBmeBus();
-  if (got) return;
+  if (got) {
+    g_mpuMisses = 0;
+    return;
+  }
   publishLastMpu(out);
   if (!out.mpu6050) FASerial.println("[node-a] MPU-6050 read missed");
+  if (MPU6050_SEPARATE_I2C_BUS) return;
+  if (++g_mpuMisses < 8) return;
+  g_mpuMisses = 0;
+  g_mpu6050Ready = false;
+  g_scd40Ready = false;
+  g_max30102Ready = false;
+  g_max30102Sampling = false;
+  FASerial.println("[node-a] shared bus went quiet — the three sensors will be probed again");
 }
 
 static void readMq6(WearableReadings &out) {
@@ -1259,12 +1317,18 @@ void featuresBegin() {
   if (MPU6050_SEPARATE_I2C_BUS && MPU6050_ENABLED) {
     g_mpu6050Ready = beginMpu6050(false);
   }
-  if (!i2cLinesIdle(I2C_SDA_PIN, I2C_SCL_PIN, "GPIO 8/9")) {
-    FASerial.println("[node-a] GPIO 8/9 looked busy, trying the SCD40 anyway");
+  for (int attempt = 0; attempt < 4; ++attempt) {
+    const bool mpuNeeded = MPU6050_ENABLED && !MPU6050_SEPARATE_I2C_BUS && !g_mpu6050Ready;
+    const bool scdNeeded = SCD40_ENABLED && !g_scd40Ready;
+    const bool maxNeeded = MAX30102_ENABLED && !g_max30102Ready;
+    if (!mpuNeeded && !scdNeeded && !maxNeeded) break;
+    FASerial.printf("[node-a] GPIO 8/9 probe %d\n", attempt + 1);
+    recoverSharedBus();
+    delay(60);
+    if (mpuNeeded) g_mpu6050Ready = beginMpu6050(true);
+    if (scdNeeded) g_scd40Ready = beginScd40();
+    if (maxNeeded) g_max30102Ready = beginMax30102();
   }
-  if (!MPU6050_SEPARATE_I2C_BUS) g_mpu6050Ready = beginMpu6050(true);
-  g_scd40Ready = beginScd40();
-  g_max30102Ready = beginMax30102();
   if (!i2cLinesIdle(BME688_I2C_SDA_PIN, BME688_I2C_SCL_PIN, "GPIO 17/18")) {
     FASerial.println("[node-a] GPIO 17/18 looked busy, trying the BME688 anyway");
   }
@@ -1283,15 +1347,22 @@ void featuresBegin() {
 }
 
 static void retryMissingSensors() {
-  // Rare + MPU-first. Never retry SCD/BME in a tight loop — blanks are fine.
+  // The three GPIO 8/9 parts are retried on the slow tick. BME stays on its own bus.
   static uint32_t lastMs = 0;
+  const bool sharedDown = (MPU6050_ENABLED && !MPU6050_SEPARATE_I2C_BUS && !g_mpu6050Ready) ||
+                          (SCD40_ENABLED && !g_scd40Ready) || (MAX30102_ENABLED && !g_max30102Ready);
   if (MPU6050_ENABLED && g_mpu6050Ready && g_scd40Ready && g_bme688Ready && (!MAX30102_ENABLED || g_max30102Ready)) return;
   const uint32_t now = millis();
-  if (lastMs != 0 && now - lastMs < 30000) return;
+  if (lastMs != 0 && now - lastMs < (sharedDown ? 5000u : 30000u)) return;
   lastMs = now;
+  if (sharedDown) {
+    FASerial.println("[node-a] clearing GPIO 8/9 and retrying the three sensors");
+    recoverSharedBus();
+    delay(40);
+  }
   if (MPU6050_ENABLED && !g_mpu6050Ready) {
     FASerial.println("[node-a] retrying MPU-6050");
-    g_mpu6050Ready = beginMpu6050(false);
+    g_mpu6050Ready = beginMpu6050(!MPU6050_SEPARATE_I2C_BUS);
   }
   if (!g_scd40Ready && SCD40_ENABLED) {
     FASerial.println("[node-a] retrying SCD40 (optional)");
