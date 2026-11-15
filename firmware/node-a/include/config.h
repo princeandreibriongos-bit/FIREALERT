@@ -91,9 +91,9 @@ static constexpr bool CANCEL_BUTTON_ENABLED = true;
 static constexpr int CANCEL_BUTTON_PIN = 4;  // active low, internal pull-up
 static constexpr uint32_t FALL_GRACE_MS = 10000;
 
-// Edge Impulse idle/walk classifier is linked (see lib/edge-impulse-mpu).
-// Fall grace still uses the simple impact heuristic; EI labels activity on serial.
-static constexpr const char *FALL_MODEL_ID = "mpu5060-v1-idle-walk";
+// Shoulder idle/walk model removed. Wrist recordings use the serial "rec" command.
+// Fall grace still uses the impact heuristic. No classifier is linked.
+static constexpr const char *FALL_MODEL_ID = "none";
 
 // --- ECDSA -----------------------------------------------------------------
 // Off until a private key is provisioned on the device. Do not commit a key.

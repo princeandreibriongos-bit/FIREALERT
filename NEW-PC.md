@@ -225,7 +225,7 @@ Do not turn these flags on until the part is wired and a driver is linked. They 
 - Cellular modem on the gateway
 - BME688 gas heater. Leave it off unless you accept a slower loop. With it off, gas resistance is 0 on purpose
 
-The Edge Impulse idle/walk model is linked and runs at most every 3 seconds. It does not raise the fall cue. Serial command `fall` starts the 10-second cancel window. GPIO 4, active low, cancels it.
+No motion classifier is linked. The shoulder idle/walk model was removed when the MPU-6050 moved to the wrist. Serial command `fall` starts the 10-second cancel window. GPIO 4, active low, cancels it. `rec idle`, `rec walk`, and `rec fall` mark a 45-second wrist recording.
 
 MQ-6 is in the firmware (`MQ6_ENABLED`). The count in the log is the ADC reading after the divider.
 

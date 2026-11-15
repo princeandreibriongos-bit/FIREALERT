@@ -22,7 +22,7 @@ On a new computer, read **[NEW-PC.md](NEW-PC.md)** before installing or flashing
   - MAX30102 on GPIO 8/9: estimated heart rate and SpO₂ while a finger covers the glass. Not a clinical reading. See [Reading limits](#reading-limits).
   - MPU-6050 on GPIO 8/9, **VCC on 3.3 V**: acceleration and gyro. Powering this module from 5 V pulls SDA/SCL above 3.3 V and locks the pulse sensor.
   - MQ-6: heater on the devkit 5 V pin, analog output on GPIO 1 through a resistor divider. The log shows a raw ADC count, not %LEL.
-  - Edge Impulse idle/walk label, at most once every 3 seconds, after the packet is queued. Fall grace still uses the impact heuristic.
+  - MPU-6050 is worn on the wrist. The shoulder idle/walk model has been removed, so the motion class stays Waiting until a wrist model is trained. Fall grace still uses the impact heuristic.
 - **Node B (gateway):** Receives ESP-NOW, prints JSON on USB, and can POST a link heartbeat to the hosted board. Live wearer packets reach the dashboard through the USB bridge, not through a direct ESP32 POST to the laptop.
 - **Web board:** `http://localhost:3000` from `web/`. Use `npm start` after `npm run build` for a test or demo. Use `npm run dev` only while editing the site. **Load sample crew** fills FF-01 and FF-02 with simulated packets so the layout can be reviewed without hardware.
 
@@ -72,11 +72,9 @@ Summary for Node A: SCD40, MAX30102 (`0x57`, INT open), and MPU-6050 share **GPI
 
 ## Motion model
 
-The wearable runs an Edge Impulse idle/walk classifier (`mpu5060` deploy v1) on the MPU-6050. One fresh sample of acceleration in g and gyro in degrees per second is pushed on each motion tick, about every 100 ms. After 42 samples (about 4 seconds) it classifies at most every 3 seconds, after the radio packet is already out. A winning score under 0.60 is ignored, and the dashboard stays on the last confident class, or **Waiting** until the first one.
+The previous classifier was trained while the MPU-6050 was on the shoulder. That deploy (`mpu5060` idle/walk) and the shoulder CSV takes under `datasets/mpu/` are removed. The same chip is now worn on the wrist, on the same wires (GPIO 8 SDA, GPIO 9 SCL, VCC on 3.3 V). Wrist motion is not the same pattern, so the dashboard motion class stays **Waiting**. Fall grace is still the freefall-then-impact check. Type `fall` on the wearable serial port to open it by hand.
 
-Fall is not one of those two classes. The 10-second grace window is still the freefall-then-impact check. Type `fall` on the wearable serial port to open it by hand.
-
-To record a labeled take for the next training upload, open the wearable serial port at 115200 and type one line:
+Record new takes with the sensor on the wrist. Open the wearable serial port at 115200 and type one line:
 
 ```text
 rec idle
@@ -91,7 +89,7 @@ rec off
 npm run dataset:export -- --label walk --tagged --last 2h
 ```
 
-That writes `datasets/mpu/walk.<stamp>.csv` with columns `timestamp,accX,accY,accZ,gyrX,gyrY,gyrZ`. Upload each file in Edge Impulse under the matching label, retrain, and replace `firmware/node-a/lib/edge-impulse-mpu`.
+That writes `datasets/mpu/walk.<stamp>.csv` with columns `timestamp,accX,accY,accZ,gyrX,gyrY,gyrZ`. Those files are the wrist training set. Do not mix them with the old shoulder recordings.
 
 ## Reading limits
 
@@ -114,7 +112,7 @@ These commits were made on this tree and were not on GitHub until this push. Old
 - Heart rate is counted from infrared peaks, averaged over a short window.
 - The USB bridge starts with the local board and posts on background threads so a slow hosted request cannot stall the serial read.
 - Overview, sensors, wearer, and the packet log show pulse and raw light when the packet carries them.
-- Motion packets are no longer held back by Edge Impulse. Inference runs at most every 3 seconds, after the packet is sent.
+- The shoulder idle/walk model was removed after the MPU-6050 moved to the wrist. Motion class stays Waiting until a new model is trained from wrist recordings.
 - The board cache, the telemetry write, and the page refresh were shortened so the log moves in about a second instead of minutes.
 
 ## Web app

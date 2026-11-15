@@ -16,7 +16,7 @@ export function buildSampleCrew(now = Date.now()): { raw: RawTelemetry; received
     mq6: { ok: false, raw: null },
     local_ui: { touchscreen: "not_installed" as const, buzzer: "not_installed" as const },
     gps: { ok: false, fix: "none", latitude: null, longitude: null, altitude_m: null, satellites: null },
-    fall: { state: "idle", model: "edge-impulse-placeholder", grace_remaining_ms: 0 },
+    fall: { state: "idle", model: "none", grace_remaining_ms: 0 },
   };
 
   return [
@@ -38,7 +38,7 @@ export function buildSampleCrew(now = Date.now()): { raw: RawTelemetry; received
           altitude_m: 18,
           satellites: 0,
         },
-        fall: { state: "distress", model: "edge-impulse-placeholder", grace_remaining_ms: 0 },
+        fall: { state: "distress", model: "none", grace_remaining_ms: 0 },
         local_ui: { touchscreen: "requested_not_installed", buzzer: "requested_not_installed" },
       },
     },

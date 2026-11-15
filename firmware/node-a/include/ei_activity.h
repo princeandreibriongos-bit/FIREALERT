@@ -2,14 +2,14 @@
 
 #include "features.h"
 
-/** Feed one fresh MPU sample (g and dps). Repeated last-values are ignored. */
+/** No-op. The shoulder model is gone; a wrist model is not linked yet. */
 void eiActivityPushSample(const WearableReadings &in);
 
-/** Classify at most every few seconds, after the radio packet is already out. */
+/** No-op. Does not run a classifier. */
 void eiActivityRunIfDue();
 
-/** Last classifier label ("idle", "walk", or ""). */
+/** Always "" until a wrist model is linked. The gateway shows that as Waiting. */
 const char *eiActivityLabel();
 
-/** Confidence 0..1 for eiActivityLabel(). */
+/** Always 0. */
 float eiActivityScore();

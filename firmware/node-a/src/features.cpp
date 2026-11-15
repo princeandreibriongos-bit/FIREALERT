@@ -213,8 +213,7 @@ const char *featuresCaptureLabel() {
   return g_capture;
 }
 
-// Fall grace is a freefall→impact cue. The Edge Impulse model labels idle/walk;
-// it does not open this window.
+// Fall grace is a freefall→impact cue. No motion classifier is linked.
 static bool predictFall(const WearableReadings &in) {
   if (!in.mpu6050) return false;
   const float ax = in.accel_x;

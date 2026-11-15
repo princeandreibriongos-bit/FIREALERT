@@ -350,7 +350,7 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
               <div className={`callout ${reviewing ? "is-alert" : "is-ok"}`} style={{ flex: 1 }}>
                 <p>{fallCopy(packet)}</p>
                 <p className="fine">
-                  Model: {packet.fall.model}. Idle and walk come from the MPU window. A score under 60% stays on the last confident class. Fall is still the impact cue, not this model.
+                  Model: {packet.fall.model}. The MPU-6050 is on the wrist and no classifier is loaded, so the motion class stays Waiting. Fall is still the impact cue.
                   {packet.activity?.capture ? ` Recording ${packet.activity.capture}.` : ""}
                 </p>
               </div>

@@ -273,7 +273,7 @@ export function normalizeTelemetry(
     gps: gpsOf(input.gps),
     fall: {
       state: fallState,
-      model: text(fall.model, 60) || "edge-impulse-placeholder",
+      model: text(fall.model, 60) || "none",
       grace_remaining_ms: grace != null && grace >= 0 ? Math.min(grace, 120000) : 0,
     },
     activity: activityOf(activity),
