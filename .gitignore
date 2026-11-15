@@ -8,3 +8,4 @@ node_modules/
 .env.local
 data/live-board.json
 data/network.json
+datasets/weda-fall/.upstream/

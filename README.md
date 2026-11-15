@@ -89,7 +89,7 @@ rec off
 npm run dataset:export -- --label walk --tagged --last 2h
 ```
 
-That writes `datasets/mpu/walk.<stamp>.csv` with columns `timestamp,accX,accY,accZ,gyrX,gyrY,gyrZ`. Those files are the wrist training set. Do not mix them with the old shoulder recordings.
+That writes `datasets/mpu/walk.<stamp>.csv` with columns `timestamp,accX,accY,accZ,gyrX,gyrY,gyrZ`. Those files are takes from this wearable. The public wrist set is separate, in [datasets/weda-fall](datasets/weda-fall/README.md). Do not mix either one with the old shoulder recordings.
 
 ## Reading limits
 
