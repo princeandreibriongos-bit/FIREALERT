@@ -588,6 +588,9 @@ static void configureBme688() {
   g_bme688.setGasHeater(320, 150);
 }
 
+static bool g_haveBme = false;
+static float g_lastBmeT = NAN, g_lastBmeRh = NAN, g_lastBmeP = NAN, g_lastBmeGas = NAN;
+
 static bool beginBme688() {
   if (!BME688_ENABLED) return false;
   if (BME688_SEPARATE_I2C_BUS) {
@@ -602,7 +605,17 @@ static bool beginBme688() {
   for (uint8_t addr : candidates) {
     if (g_bme688.begin(addr)) {
       configureBme688();
-      FASerial.printf("[node-a] BME688 ready at 0x%02X\n", addr);
+      // One full heater cycle so gas is a real resistance before the first packet.
+      if (g_bme688.performReading()) {
+        g_haveBme = true;
+        g_lastBmeT = g_bme688.temperature;
+        g_lastBmeRh = g_bme688.humidity;
+        g_lastBmeP = g_bme688.pressure / 100.0f;
+        g_lastBmeGas = g_bme688.gas_resistance;
+        FASerial.printf("[node-a] BME688 ready at 0x%02X  gas %.0f ohm\n", addr, g_lastBmeGas);
+      } else {
+        FASerial.printf("[node-a] BME688 ready at 0x%02X  gas read missed\n", addr);
+      }
       return true;
     }
   }
@@ -610,8 +623,6 @@ static bool beginBme688() {
   return false;
 }
 
-static bool g_haveBme = false;
-static float g_lastBmeT = NAN, g_lastBmeRh = NAN, g_lastBmeP = NAN, g_lastBmeGas = NAN;
 static uint32_t g_bmeStartedMs = 0;
 static bool g_bmePending = false;
 
@@ -656,7 +667,7 @@ static void readBme688(WearableReadings &out) {
   g_lastBmeT = g_bme688.temperature;
   g_lastBmeRh = g_bme688.humidity;
   g_lastBmeP = g_bme688.pressure / 100.0f;
-  g_lastBmeGas = g_bme688.gas_resistance;
+  if (g_bme688.gas_resistance > 0.0f) g_lastBmeGas = g_bme688.gas_resistance;
   publishLastBme(out);
 }
 
@@ -792,20 +803,24 @@ static void sampleMax30102() {
   maxBusRestore();
 }
 
+static bool maxAddressAck() {
+  sharedBusOn();
+  Wire.beginTransmission(MAX30102_I2C_ADDR);
+  return Wire.endTransmission() == 0;
+}
+
 static bool beginMax30102() {
   g_max30102Sampling = false;
   if (!MAX30102_ENABLED) {
     FASerial.println("[node-a] MAX30102 disabled");
     return false;
   }
-  sharedBusOn();
-  if (!g_max30102.begin(Wire, I2C_SPEED_STANDARD, MAX30102_I2C_ADDR)) {
+  if (!maxAddressAck()) {
     FASerial.printf("[node-a] MAX30102 0x%02X no ack on SDA=%d SCL=%d\n", MAX30102_I2C_ADDR, I2C_SDA_PIN, I2C_SCL_PIN);
-    // begin() calls Wire.begin() with no pins. Put GPIO 8/9 back or the SCD40 and MPU disappear too.
-    sharedBusOn();
     return false;
   }
-  // begin() calls Wire.begin() with no pins. Put GPIO 8/9 back before setup.
+  // begin() calls Wire.begin() with no pins. The address check above is what counts.
+  g_max30102.begin(Wire, I2C_SPEED_STANDARD, MAX30102_I2C_ADDR);
   sharedBusOn();
   // ledMode 2 = red + IR. Estimates only; not a clinical reading.
   g_max30102.setup(0x1F, 4, 2, 100, 411, 4096);
@@ -822,7 +837,9 @@ static bool beginMax30102() {
   g_prev2Ir = 0;
   g_lastFingerMs = 0;
   g_sampleClock = 0;
-  FASerial.println("[node-a] MAX30102 sampling red+IR");
+  delay(50);
+  sampleMax30102();
+  FASerial.printf("[node-a] MAX30102 red %lu  IR %lu\n", static_cast<unsigned long>(g_lastRed), static_cast<unsigned long>(g_lastIr));
   maxBusRestore();
   return true;
 }
