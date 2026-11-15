@@ -89,6 +89,9 @@ static const char *joinFailDetail(wl_status_t status) {
 static constexpr size_t QUEUE_DEPTH = 32;
 static constexpr size_t PACKET_MAX = 250;
 /** After a failed Wi-Fi POST, skip HTTP for a while — USB serial already delivered the packet. */
+static SemaphoreHandle_t g_httpMutex = nullptr;
+static String g_hostedBody;
+static bool g_hostedDirty = false;
 
 struct QueuedPacket {
   uint8_t data[PACKET_MAX];
@@ -765,15 +768,42 @@ static void postHostedTelemetry(const String &body) {
   nextMs = now + 1000;
 }
 
+static void rememberHostedBody(const String &body) {
+  if (g_httpMutex == nullptr) return;
+  // Never wait here. The USB line has to leave even if an upload is in progress.
+  if (xSemaphoreTake(g_httpMutex, 0) != pdTRUE) return;
+  g_hostedBody = body;
+  g_hostedDirty = true;
+  xSemaphoreGive(g_httpMutex);
+}
+
 static bool postDocument(JsonDocument &doc) {
   doc["router_ssid"] = g_wifi.ssid[0] ? g_wifi.ssid : nullptr;
   String body;
   serializeJson(doc, body);
-  // USB print stays so a bridge can still forward. The hosted post is what
-  // keeps the board updating after that window is closed.
+  // Print first. The hosted upload runs on another task, so a slow TLS
+  // handshake cannot hold the next log line for ~15 seconds.
   FASerial.println(body);
-  postHostedTelemetry(body);
+  rememberHostedBody(body);
   return true;
+}
+
+static void hostedUploadTask(void *) {
+  for (;;) {
+    vTaskDelay(pdMS_TO_TICKS(200));
+    if (g_phase == WifiPhase::Scanning || g_phase == WifiPhase::Connecting) continue;
+    String body;
+    if (g_httpMutex != nullptr && xSemaphoreTake(g_httpMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+      if (g_hostedDirty) {
+        body = g_hostedBody;
+        g_hostedDirty = false;
+      }
+      xSemaphoreGive(g_httpMutex);
+    }
+    if (body.length() > 0) postHostedTelemetry(body);
+    pollDashboardRouter();
+    postWifiLink();
+  }
 }
 
 static bool postV1(const QueuedPacket &item) {
@@ -985,6 +1015,8 @@ void setup() {
     }
   }
   loadRouter();
+  g_httpMutex = xSemaphoreCreateMutex();
+  xTaskCreatePinnedToCore(hostedUploadTask, "hosted-upload", 12288, nullptr, 1, nullptr, 0);
   if (g_book.count == 0) {
     setDetail("no_saved_network");
     setTrying("-");
@@ -1020,8 +1052,6 @@ void loop() {
 
   readRouterFromSerial();
   serviceWifi();
-  pollDashboardRouter();
-  postWifiLink();
 
   static uint32_t lastBeatMs = 0;
   if (millis() - lastBeatMs >= 2000) {
