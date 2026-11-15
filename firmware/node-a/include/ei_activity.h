@@ -2,7 +2,7 @@
 
 #include "features.h"
 
-/** Feed one MPU sample (g / dps). Does not run the model. */
+/** Feed one fresh MPU sample (g and dps). Repeated last-values are ignored. */
 void eiActivityPushSample(const WearableReadings &in);
 
 /** Classify at most every few seconds, after the radio packet is already out. */

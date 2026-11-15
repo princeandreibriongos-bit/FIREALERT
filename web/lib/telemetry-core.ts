@@ -105,7 +105,7 @@ export type NormalizedTelemetry = {
     satellites: number | null;
   };
   fall: { state: FallState; model: string; grace_remaining_ms: number };
-  activity: { label: string; score: number | null };
+  activity: { label: string; score: number | null; capture: string | null };
   local_ui: { touchscreen: UiState; buzzer: UiState };
 };
 
@@ -116,12 +116,15 @@ const UI_STATES: readonly UiState[] = ["not_installed", "requested_not_installed
 function activityOf(activity: Record<string, unknown>): NormalizedTelemetry["activity"] {
   const raw = text(activity.label, 16).toLowerCase();
   const score = num(activity.score);
+  const captureRaw = text(activity.capture, 8).toLowerCase();
+  const capture = captureRaw === "idle" || captureRaw === "walk" || captureRaw === "fall" || captureRaw === "run" || captureRaw === "jump" ? captureRaw : null;
   if (!raw || raw === "waiting" || raw === "unknown") {
-    return { label: "waiting", score: null };
+    return { label: "waiting", score: null, capture };
   }
   return {
     label: raw,
     score: score == null ? null : Math.min(1, Math.max(0, score)),
+    capture,
   };
 }
 

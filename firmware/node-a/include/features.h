@@ -23,6 +23,7 @@ struct WearableReadings {
   uint32_t max_ir;
 
   bool mpu6050;
+  bool mpu_fresh;
   float accel_x, accel_y, accel_z;
   float gyro_x, gyro_y, gyro_z;
 
@@ -58,3 +59,5 @@ void wearableWifiKick();
 void wearableWifiNoteConnected();
 // Returns false while ECDSA_SIGNING_ENABLED is off. Packet stays unsigned.
 bool featuresSign(TelemetryPacket &packet);
+/** Active dataset label during a "rec idle|walk|fall|run|jump" take, or "". */
+const char *featuresCaptureLabel();

@@ -29,6 +29,7 @@ type Args = {
   wearer: string | null;
   out: string | null;
   list: boolean;
+  tagged: boolean;
   limit: number;
   help: boolean;
 };
@@ -59,6 +60,7 @@ Options:
   --from <time>      Start (ISO or "YYYY-MM-DD HH:MM" in +08:00)
   --to <time>        End (same formats)
   --last <duration>  e.g. 90s, 3m, 10m (instead of --from/--to)
+  --tagged           Keep only packets marked by "rec <label>" on the wearable
   --wearer <id>      Filter wearer_id (default: all)
   --out <path>       Output CSV path (default: datasets/mpu/<label>-<stamp>.csv)
   --limit <n>        Max rows (default 200000)
@@ -80,6 +82,7 @@ function parseArgs(argv: string[]): Args {
     wearer: null,
     out: null,
     list: false,
+    tagged: false,
     limit: 200000,
     help: false,
   };
@@ -92,6 +95,7 @@ function parseArgs(argv: string[]): Args {
     };
     if (a === "--help" || a === "-h") out.help = true;
     else if (a === "--list") out.list = true;
+    else if (a === "--tagged") out.tagged = true;
     else if (a === "--label") out.label = next().trim();
     else if (a === "--from") out.from = next();
     else if (a === "--to") out.to = next();
@@ -195,6 +199,7 @@ async function exportCsv(args: Args) {
     console.error("Need --label (e.g. idle, walk, run, jump, fall). Use --help.");
     process.exit(1);
   }
+  if (args.tagged && !args.last && !(args.from && args.to)) args.last = "6h";
   if (!/^[a-zA-Z0-9_-]+$/.test(args.label)) {
     console.error("Label must be letters/numbers/_/- only.");
     process.exit(1);
@@ -229,6 +234,7 @@ async function exportCsv(args: Args) {
     where received_at >= ${fromIso}::timestamptz
       and received_at <= ${toIso}::timestamptz
       and (${args.wearer}::text is null or wearer_id = ${args.wearer})
+      and (${args.tagged}::boolean is false or payload->'activity'->>'capture' = ${args.label})
     order by received_at asc
     limit ${args.limit}
   `) as Row[];

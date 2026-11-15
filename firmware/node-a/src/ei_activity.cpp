@@ -9,6 +9,7 @@
 
 static float g_features[EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE];
 static size_t g_samples = 0;
+static bool g_windowFull = false;
 static char g_label[12] = "";
 static float g_score = 0.0f;
 static uint32_t g_lastInferMs = 0;
@@ -34,7 +35,14 @@ static void runInference() {
   for (size_t i = 1; i < EI_CLASSIFIER_LABEL_COUNT; i++) {
     if (result.classification[i].value > result.classification[best].value) best = i;
   }
-  g_score = result.classification[best].value;
+  const float score = result.classification[best].value;
+  // The exported model rejects a call under this score. Keep the last confident label.
+  if (score < EI_CLASSIFIER_THRESHOLD) {
+    FASerial.printf("[node-a] activity held (best=%s %.2f < %.2f)\n", result.classification[best].label, score,
+                  EI_CLASSIFIER_THRESHOLD);
+    return;
+  }
+  g_score = score;
   strncpy(g_label, result.classification[best].label, sizeof(g_label) - 1);
   g_label[sizeof(g_label) - 1] = '\0';
 
@@ -43,7 +51,7 @@ static void runInference() {
 }
 
 void eiActivityPushSample(const WearableReadings &in) {
-  if (!in.mpu6050) return;
+  if (!in.mpu_fresh || !in.mpu6050) return;
 
   if (g_samples >= EI_CLASSIFIER_RAW_SAMPLE_COUNT) {
     memmove(g_features, g_features + EI_CLASSIFIER_RAW_SAMPLES_PER_FRAME,
@@ -59,6 +67,11 @@ void eiActivityPushSample(const WearableReadings &in) {
   g_features[base + 4] = in.gyro_y;
   g_features[base + 5] = in.gyro_z;
   g_samples++;
+  if (!g_windowFull && g_samples >= EI_CLASSIFIER_RAW_SAMPLE_COUNT) {
+    g_windowFull = true;
+    FASerial.printf("[node-a] motion window full (%u samples, idle/walk)\n",
+                  static_cast<unsigned>(EI_CLASSIFIER_RAW_SAMPLE_COUNT));
+  }
 }
 
 void eiActivityRunIfDue() {

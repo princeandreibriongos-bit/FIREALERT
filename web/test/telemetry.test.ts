@@ -94,6 +94,11 @@ describe("telemetry", () => {
     assert.equal(entry.activity.score, 0.91);
     const jump = sample({ activity: { label: "jump", score: 0.8 } });
     assert.equal(jump.activity.label, "jump");
+    const recording = sample({ activity: { label: "waiting", capture: "walk" } });
+    assert.equal(recording.activity.label, "waiting");
+    assert.equal(recording.activity.capture, "walk");
+    const ignored = sample({ activity: { label: "idle", score: 0.7, capture: "sprint" } });
+    assert.equal(ignored.activity.capture, null);
   });
 
   it("labels CO2 cues and link age", () => {

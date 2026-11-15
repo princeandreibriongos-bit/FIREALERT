@@ -118,6 +118,7 @@ void wearableWifiNoteConnected() {
 static void scanI2C(TwoWire &bus, int sda, int scl, const char *label);
 static void runSensorScan();
 static void restoreBmeBus();
+static void noteCaptureCommand(const char *line);
 
 // A shorted or clock-stretched line makes Wire.endTransmission() wait forever
 // on this core. Clock the bus, then refuse to start I2C if a line is still low.
@@ -149,6 +150,7 @@ static bool pollFallCommand() {
   while (takeSerialLine(FASerial, line, sizeof(line), used)) {
     if (strcasecmp(line, "fall") == 0) fired = true;
     if (strcasecmp(line, "scan") == 0) runSensorScan();
+    noteCaptureCommand(line);
     char ssid[33];
     char password[64];
     if (parseWifiLine(line, ssid, sizeof(ssid), password, sizeof(password)) && saveWifiCreds(ssid, password)) {
@@ -168,8 +170,51 @@ static bool pollFallCommand() {
   return fired;
 }
 
-// Edge Impulse is not linked. Use a simple freefall→impact / hard-tumble cue so a
-// throw shows up immediately in telemetry without waiting on air sensors.
+static char g_capture[8] = "";
+static uint32_t g_captureUntilMs = 0;
+
+static bool captureLabelOk(const char *label) {
+  return strcasecmp(label, "idle") == 0 || strcasecmp(label, "walk") == 0 || strcasecmp(label, "fall") == 0 ||
+         strcasecmp(label, "run") == 0 || strcasecmp(label, "jump") == 0;
+}
+
+static void noteCaptureCommand(const char *line) {
+  if (strncasecmp(line, "rec", 3) != 0) return;
+  const char *rest = line + 3;
+  if (*rest != '\0' && *rest != ' ') return;
+  while (*rest == ' ') rest++;
+  if (*rest == '\0' || strcasecmp(rest, "off") == 0) {
+    g_capture[0] = '\0';
+    g_captureUntilMs = 0;
+    FASerial.println("[node-a] recording off");
+    return;
+  }
+  if (!captureLabelOk(rest)) {
+    FASerial.println("[node-a] rec label must be idle, walk, fall, run, or jump");
+    return;
+  }
+  size_t n = 0;
+  for (; rest[n] != '\0' && n < sizeof(g_capture) - 1; ++n) {
+    const char c = rest[n];
+    g_capture[n] = (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+  }
+  g_capture[n] = '\0';
+  g_captureUntilMs = millis() + 45000;
+  FASerial.printf("[node-a] recording %s for 45 s — keep that motion steady\n", g_capture);
+}
+
+const char *featuresCaptureLabel() {
+  if (g_capture[0] == '\0' || g_captureUntilMs == 0 || static_cast<int32_t>(millis() - g_captureUntilMs) >= 0) {
+    if (g_capture[0] != '\0') FASerial.println("[node-a] recording finished");
+    g_capture[0] = '\0';
+    g_captureUntilMs = 0;
+    return "";
+  }
+  return g_capture;
+}
+
+// Fall grace is a freefall→impact cue. The Edge Impulse model labels idle/walk;
+// it does not open this window.
 static bool predictFall(const WearableReadings &in) {
   if (!in.mpu6050) return false;
   const float ax = in.accel_x;
@@ -1042,6 +1087,7 @@ static bool readMpuSample(WearableReadings &out) {
     gz = mpuRead16From(Wire);
   }
   out.mpu6050 = true;
+  out.mpu_fresh = true;
   out.accel_x = static_cast<float>(ax) / 16384.0f;
   out.accel_y = static_cast<float>(ay) / 16384.0f;
   out.accel_z = static_cast<float>(az) / 16384.0f;
@@ -1183,7 +1229,7 @@ void featuresBegin() {
   FASerial.printf("[node-a] placeholders bme=%d max30102=%d mpu=%d gps=%d battery=%d screen=%d buzzer=%d ecdsa=%d model=%s\n",
                 BME688_ENABLED, MAX30102_ENABLED, MPU6050_ENABLED, GPS_ENABLED, BATTERY_SENSE_ENABLED,
                 TOUCHSCREEN_INSTALLED, BUZZER_INSTALLED, ECDSA_SIGNING_ENABLED, FALL_MODEL_ID);
-  FASerial.println("[node-a] serial command: fall");
+  FASerial.println("[node-a] serial commands: fall | rec idle | rec walk | rec fall | rec off");
 }
 
 static void retryMissingSensors() {

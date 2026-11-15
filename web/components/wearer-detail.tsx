@@ -202,6 +202,7 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
             <Badge tone={packet.activity?.label && packet.activity.label !== "waiting" ? "live" : "wait"}>
               {activityLabel(packet.activity?.label)}
             </Badge>
+            {packet.activity?.capture ? <Badge tone="caution">Recording {packet.activity.capture}</Badge> : null}
             <Badge tone={packet.signature.status === "valid" ? "live" : packet.signature.status === "invalid" ? "alert" : "wait"}>
               {signatureLabel(packet.signature.status)}
             </Badge>
@@ -348,7 +349,10 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
             <div className="card-head">
               <div className={`callout ${reviewing ? "is-alert" : "is-ok"}`} style={{ flex: 1 }}>
                 <p>{fallCopy(packet)}</p>
-                <p className="fine">Model: {packet.fall.model}. Motion class comes from the shoulder MPU. Fall cues are still a separate review.</p>
+                <p className="fine">
+                  Model: {packet.fall.model}. Idle and walk come from the MPU window. A score under 60% stays on the last confident class. Fall is still the impact cue, not this model.
+                  {packet.activity?.capture ? ` Recording ${packet.activity.capture}.` : ""}
+                </p>
               </div>
               {hardwareBadge(packet.mpu6050.installed, packet.mpu6050.accel_g != null)}
             </div>

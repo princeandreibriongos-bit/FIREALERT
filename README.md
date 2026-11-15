@@ -70,6 +70,29 @@ Wearer id, telemetry URL, Node B MAC, and the ESP-NOW channel are still in:
 
 Summary for Node A: SCD40, MAX30102 (`0x57`, INT open), and MPU-6050 share **GPIO 8 (SDA)** and **GPIO 9 (SCL)**. GPIO 8 is SDA. GPIO 9 is SCL. By default the BME688 uses a **second I2C bus** on **GPIO 17 (SDA)** and **GPIO 18 (SCL)** (`BME688_SEPARATE_I2C_BUS` in `config.h`). MQ-6 analog is **GPIO 1**. GPS uses UART **15/16**. Cancel button is **GPIO 4**. The full map is **PINOUT.md**.
 
+## Motion model
+
+The wearable runs an Edge Impulse idle/walk classifier (`mpu5060` deploy v1) on the MPU-6050. One fresh sample of acceleration in g and gyro in degrees per second is pushed on each motion tick, about every 100 ms. After 42 samples (about 4 seconds) it classifies at most every 3 seconds, after the radio packet is already out. A winning score under 0.60 is ignored, and the dashboard stays on the last confident class, or **Waiting** until the first one.
+
+Fall is not one of those two classes. The 10-second grace window is still the freefall-then-impact check. Type `fall` on the wearable serial port to open it by hand.
+
+To record a labeled take for the next training upload, open the wearable serial port at 115200 and type one line:
+
+```text
+rec idle
+rec walk
+rec fall
+rec off
+```
+
+`rec` marks the next 45 seconds. Keep that one motion steady. The packet log shows **Recording walk** (or whichever label). Both boards must be flashed with this firmware or the gateway drops the longer packet. Then, from `web/`, with `DATABASE_URL` in `.env.local`:
+
+```bash
+npm run dataset:export -- --label walk --tagged --last 2h
+```
+
+That writes `datasets/mpu/walk.<stamp>.csv` with columns `timestamp,accX,accY,accZ,gyrX,gyrY,gyrZ`. Upload each file in Edge Impulse under the matching label, retrain, and replace `firmware/node-a/lib/edge-impulse-mpu`.
+
 ## Reading limits
 
 These show up in the packet log and are properties of this firmware, not a broken dashboard column.

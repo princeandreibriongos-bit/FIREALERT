@@ -199,6 +199,7 @@ static void fillPacket(TelemetryPacket &packet, const WearableReadings &in) {
   packet.grace_remaining_ms = in.grace_remaining_ms;
   packet.alert_outputs = in.alert_outputs;
   strncpy(packet.activity_label, eiActivityLabel(), sizeof(packet.activity_label) - 1);
+  strncpy(packet.capture_label, featuresCaptureLabel(), sizeof(packet.capture_label) - 1);
   float score = eiActivityScore();
   if (score < 0.0f) score = 0.0f;
   if (score > 1.0f) score = 1.0f;

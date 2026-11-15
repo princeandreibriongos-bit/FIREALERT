@@ -815,7 +815,7 @@ static bool postV1(const QueuedPacket &item) {
 }
 
 static bool postV2(const QueuedPacket &item) {
-  if (item.len != sizeof(TelemetryPacket) && item.len != TELEMETRY_V2_LEGACY_SIZE) {
+  if (item.len != sizeof(TelemetryPacket) && item.len != TELEMETRY_V2_LIGHT_SIZE && item.len != TELEMETRY_V2_LEGACY_SIZE) {
     FASerial.printf("[node-b] v2 length %u, expected %u\n", item.len,
                   static_cast<unsigned>(sizeof(TelemetryPacket)));
     return false;
@@ -863,7 +863,7 @@ static bool postV2(const QueuedPacket &item) {
   appendNullableFloat(max30102, "spo2_percent", packet.spo2_percent);
   // Raw counts only exist on the longer packet. A short packet would otherwise
   // look like an empty glass.
-  if (maxOk && item.len == sizeof(TelemetryPacket)) {
+  if (maxOk && item.len >= TELEMETRY_V2_LIGHT_SIZE) {
     max30102["red"] = packet.max_red;
     max30102["ir"] = packet.max_ir;
   } else {
@@ -941,7 +941,14 @@ static bool postV2(const QueuedPacket &item) {
   memcpy(activityLabel, packet.activity_label, sizeof(packet.activity_label));
   JsonObject activity = doc["activity"].to<JsonObject>();
   activity["label"] = activityLabel[0] ? activityLabel : "waiting";
-  activity["score"] = static_cast<float>(packet.activity_score) / 100.0f;
+  activity["score"] = activityLabel[0] ? static_cast<float>(packet.activity_score) / 100.0f : 0.0f;
+  if (item.len >= sizeof(TelemetryPacket) && packet.capture_label[0] != '\0') {
+    char capture[sizeof(packet.capture_label) + 1] = {};
+    memcpy(capture, packet.capture_label, sizeof(packet.capture_label));
+    activity["capture"] = capture;
+  } else {
+    activity["capture"] = nullptr;
+  }
 
   const bool wantBuzzer = (packet.alert_outputs & ALERT_BUZZER) != 0;
   const bool wantScreen = (packet.alert_outputs & ALERT_SCREEN) != 0;

@@ -104,12 +104,17 @@ struct TelemetryPacket {
   // Latest optical sample. Zero means the chip has not produced one yet.
   uint32_t max_red;
   uint32_t max_ir;
+
+  // Set only while a serial "rec <label>" take is running. Empty otherwise.
+  char capture_label[8];
 } __attribute__((packed));
 
 static constexpr size_t TELEMETRY_V2_LEGACY_SIZE = 171;
+static constexpr size_t TELEMETRY_V2_LIGHT_SIZE = 179;
 
 static_assert(sizeof(TelemetryPacketV1) == TELEMETRY_V1_SIZE, "v1 packet size drifted");
 static_assert(sizeof(TelemetryPacket) <= 250, "ESP-NOW payload exceeds 250 bytes");
-static_assert(sizeof(TelemetryPacket) == 179, "v2 packet size drifted");
+static_assert(sizeof(TelemetryPacket) == 187, "v2 packet size drifted");
 static_assert(offsetof(TelemetryPacket, signature_len) == 95, "signed prefix drifted");
 static_assert(offsetof(TelemetryPacket, max_red) == TELEMETRY_V2_LEGACY_SIZE, "raw light fields must stay after the old packet");
+static_assert(offsetof(TelemetryPacket, capture_label) == TELEMETRY_V2_LIGHT_SIZE, "capture label must follow the raw light fields");
