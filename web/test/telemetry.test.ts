@@ -245,6 +245,29 @@ describe("weda fall score", () => {
     assert.equal(distress.fallState, "distress");
     assert.equal(distress.model, "none");
   });
+
+  it("calls a resting board idle even when the last label was walk", () => {
+    const points: WedaPoint[] = [];
+    let clock = Date.parse("2026-11-15T05:18:00.000Z");
+    for (let i = 0; i < 6; i++) {
+      points.unshift({ at: clock, sample: still });
+      clock += 200;
+    }
+    const view = applyWedaView({
+      simulated: false,
+      fallState: "idle",
+      model: "weda-fall",
+      graceRemainingMs: 0,
+      activityLabel: "walk",
+      activityScore: 0.8,
+      capture: null,
+      armedAt: null,
+      now: clock,
+      newestFirst: points,
+    });
+    assert.equal(view.activityLabel, "idle");
+    assert.equal(view.fallState, "idle");
+  });
 });
 
 describe("wrist locomotion", () => {

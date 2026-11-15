@@ -22,6 +22,23 @@ export type WedaView = {
   newestFirst: readonly WedaPoint[];
 };
 
+/** A board on the table: about 1 g, almost no swing, gyro only a few degrees per second. */
+export function recentRest(points: readonly WedaPoint[]): boolean {
+  const recent: WedaPoint[] = [];
+  for (const point of points) {
+    if (recent.length >= 10) break;
+    if (recent.length > 0 && recent[recent.length - 1].at - point.at > 2000) break;
+    recent.push(point);
+  }
+  if (recent.length < 4) return false;
+  const accel = recent.map((point) => Math.hypot(point.sample.ax, point.sample.ay, point.sample.az));
+  const gyro = recent.map((point) => Math.hypot(point.sample.gx, point.sample.gy, point.sample.gz));
+  const avg = accel.reduce((sum, value) => sum + value, 0) / accel.length;
+  const spread = Math.max(...accel) - Math.min(...accel);
+  const turn = gyro.reduce((sum, value) => sum + value, 0) / gyro.length;
+  return avg > 0.85 && avg < 1.2 && spread < 0.12 && turn < 15;
+}
+
 function takeWindow(points: readonly WedaPoint[]): WristSample[] | null {
   const window: WedaPoint[] = [];
   for (const point of points) {
@@ -57,6 +74,9 @@ export function applyWedaView(view: WedaView): WedaView {
     };
   }
   if (armedAt != null && (held || view.now - armedAt > WEDA_GRACE_MS)) armedAt = null;
+  if (!held && recentRest(view.newestFirst)) {
+    return { ...view, model: "weda-fall", activityLabel: "idle", activityScore: 0.95, armedAt: null };
+  }
   if (held || score == null) return { ...view, armedAt };
   const activityLabel = motion?.label && motion.label !== "clear" ? motion.label : "clear";
   return { ...view, model: "weda-fall", activityLabel, activityScore: motion?.score ?? score, armedAt };

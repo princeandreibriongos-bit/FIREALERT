@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { fmt, manilaTime, vecMagnitude, vecText } from "@/lib/format";
+import { activityLabel, fmt, manilaTime, vecMagnitude } from "@/lib/format";
 import { FALL_STATES, type FallState } from "@/lib/telemetry-core";
 import { useBoard } from "./board-provider";
 import { Badge, EmptyState, PageHeader } from "./ui";
@@ -51,6 +51,7 @@ export function PacketLog() {
       "spo2_percent",
       "max_red",
       "max_ir",
+      "motion",
       "fall",
       "gps",
       "signature",
@@ -80,7 +81,8 @@ export function PacketLog() {
         row.max30102.spo2_percent == null ? "" : String(row.max30102.spo2_percent),
         row.max30102.red == null ? "" : String(row.max30102.red),
         row.max30102.ir == null ? "" : String(row.max30102.ir),
-        row.fall.state,
+        row.activity?.label ?? "",
+        row.fall.state === "idle" ? "" : row.fall.state,
         row.gps.state,
         row.signature.status,
       ]
@@ -183,6 +185,7 @@ export function PacketLog() {
                 <th>Gas Ω</th>
                 <th>Accel g</th>
                 <th>Gyro dps</th>
+                <th>Motion</th>
                 <th>MQ-6</th>
                 <th>Heart rate</th>
                 <th>SpO₂</th>
@@ -209,13 +212,14 @@ export function PacketLog() {
                   <td>{fmt(row.bme688.pressure_hpa, 0)}</td>
                   <td>{fmt(row.bme688.gas_resistance_ohm, 0)}</td>
                   <td>{fmt(vecMagnitude(row.mpu6050.accel_g), 2)}</td>
-                  <td>{vecText(row.mpu6050.gyro_dps, 1)}</td>
+                  <td>{fmt(vecMagnitude(row.mpu6050.gyro_dps), 1)}</td>
+                  <td>{activityLabel(row.activity?.label)}</td>
                   <td>{fmt(row.mq6.raw, 0)}</td>
                   <td>{fmt(row.max30102.heart_rate_bpm, 0)}</td>
                   <td>{fmt(row.max30102.spo2_percent, 0)}</td>
                   <td>{fmt(row.max30102.red, 0)}</td>
                   <td>{fmt(row.max30102.ir, 0)}</td>
-                  <td>{row.fall.state === "distress" || row.fall.state === "possible" || row.fall.state === "grace" ? <Badge tone="alert">{row.fall.state}</Badge> : row.fall.state}</td>
+                  <td>{row.fall.state === "distress" || row.fall.state === "possible" || row.fall.state === "grace" ? <Badge tone="alert">{row.fall.state}</Badge> : "—"}</td>
                   <td>{row.gps.state === "none" ? "—" : row.gps.state === "fix" ? "fix" : "last known"}</td>
                   <td>{row.signature.status}</td>
                 </tr>

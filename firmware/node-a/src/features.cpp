@@ -271,6 +271,33 @@ const char *featuresCaptureLabel() {
   return g_capture;
 }
 
+static bool recentRest() {
+  if (g_wedaFill < 8) return false;
+  const int n = g_wedaFill < 10 ? g_wedaFill : 10;
+  float sum = 0.0f;
+  float turn = 0.0f;
+  float amin = 1.0e9f;
+  float amax = -1.0e9f;
+  for (int i = 0; i < n; ++i) {
+    const int index = (g_wedaNext - 1 - i + WEDA_WINDOW) % WEDA_WINDOW;
+    const float accel = g_wedaAccel[index];
+    sum += accel;
+    turn += g_wedaGyro[index];
+    if (accel < amin) amin = accel;
+    if (accel > amax) amax = accel;
+  }
+  const float avg = sum / static_cast<float>(n);
+  // About 1 g and a few degrees per second is a board lying still, not a step.
+  return avg > 0.85f && avg < 1.20f && (amax - amin) < 0.12f && (turn / static_cast<float>(n)) < 15.0f;
+}
+
+static void markIdle() {
+  strncpy(g_activity, "idle", sizeof(g_activity) - 1);
+  g_activity[sizeof(g_activity) - 1] = '\0';
+  g_activityScore = 0.95f;
+  g_wedaHot = false;
+}
+
 static void noteWeda(const WearableReadings &in) {
   if (!in.mpu_fresh) return;
   const float accel = sqrtf(in.accel_x * in.accel_x + in.accel_y * in.accel_y + in.accel_z * in.accel_z);
@@ -279,6 +306,13 @@ static void noteWeda(const WearableReadings &in) {
   g_wedaGyro[g_wedaNext] = gyro;
   g_wedaNext = (g_wedaNext + 1) % WEDA_WINDOW;
   if (g_wedaFill < WEDA_WINDOW) g_wedaFill++;
+  if (recentRest()) {
+    markIdle();
+    if (g_wedaFill < WEDA_WINDOW) {
+      g_wedaScore = -1.0f;
+      return;
+    }
+  }
   if (g_wedaFill < WEDA_WINDOW) {
     g_wedaScore = -1.0f;
     g_wedaHot = false;
@@ -293,20 +327,22 @@ static void noteWeda(const WearableReadings &in) {
   }
   g_wedaScore = wedaFallScore(orderedA, orderedG, WEDA_WINDOW);
   activityPredict(orderedA, orderedG, WEDA_WINDOW, g_activity, sizeof(g_activity), &g_activityScore);
-  const bool hot = g_wedaScore >= WEDA_THRESHOLD;
+  if (recentRest()) markIdle();
+  const bool hot = !recentRest() && g_wedaScore >= WEDA_THRESHOLD;
   if (hot && !g_wedaHot) FASerial.printf("[node-a] weda-fall score=%.2f\n", g_wedaScore);
   g_wedaHot = hot;
 }
 
 const char *featuresMotionLabel() {
-  if (g_wedaFill < WEDA_WINDOW) return "";
   if (g_wedaHot) return "fall";
+  if (g_wedaFill < WEDA_WINDOW && g_activity[0] == '\0') return "";
   return g_activity[0] ? g_activity : "clear";
 }
 
 float featuresMotionScore() {
-  if (g_wedaFill < WEDA_WINDOW) return 0.0f;
-  return g_wedaHot ? g_wedaScore : g_activityScore;
+  if (g_wedaHot) return g_wedaScore;
+  if (g_wedaFill < WEDA_WINDOW && g_activity[0] == '\0') return 0.0f;
+  return g_activityScore;
 }
 
 // Freefall→impact still opens grace. The wrist score can open it too.
