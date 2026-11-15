@@ -9,14 +9,15 @@ import type { NormalizedTelemetry } from "./telemetry-core";
 
 /**
  * Live board document. Availability wins: a stale packet log is a miss.
- * Bursts inside one process collapse into one write a few times a second.
- * A failed write retries in about a second, not minutes.
+ * Bursts inside one process collapse into one write every couple of seconds.
+ * A failed write retries in about a second. A rate limit waits longer.
  */
 const BOARD_URL = (process.env.FIREALERT_BOARD_URL || "").trim() || "https://mantledb.sh/v2/firealert-nmcfs-live/board";
 const READ_CACHE_MS = 500;
-const LIVE_WRITE_MS = 250;
+const LIVE_WRITE_MS = 2_000;
 const FAIL_BACKOFF_START_MS = 1_000;
 const FAIL_BACKOFF_MAX_MS = 4_000;
+const RATE_LIMIT_BACKOFF_MS = 15_000;
 const TELEMETRY_KEY = "firealert:telemetry";
 const LINK_KEY = "firealert:link";
 const INCIDENTS_KEY = "firealert:incidents";
@@ -137,9 +138,15 @@ function armWriteBackoff(): void {
   writeBackoffUntil = Date.now() + delay;
 }
 
-function armReadBackoff(): void {
-  if (Date.now() < readBackoffUntil) return;
-  readBackoffUntil = Date.now() + FAIL_BACKOFF_START_MS;
+function armReadBackoff(ms = FAIL_BACKOFF_START_MS): void {
+  const until = Date.now() + ms;
+  if (until > readBackoffUntil) readBackoffUntil = until;
+}
+
+function retryAfterMs(response: Response): number {
+  const header = Number(response.headers.get("retry-after"));
+  if (Number.isFinite(header) && header > 0) return Math.min(60_000, header * 1000);
+  return RATE_LIMIT_BACKOFF_MS;
 }
 
 function scheduleFlush(delayMs: number): void {
@@ -173,6 +180,13 @@ async function flushPending(): Promise<void> {
     await saveDisk(cache?.doc);
   } catch (error) {
     pending = { ...body, ...pending };
+    const retryMs = error instanceof SharedLogBusy ? error.retryMs : 0;
+    if (retryMs > 0) {
+      writeBackoffUntil = Date.now() + retryMs;
+      scheduleFlush(retryMs);
+      console.warn(`[FIREALERT] shared log is busy. Local packets stay on this board. Next copy in ${Math.round(retryMs / 1000)} s`);
+      return;
+    }
     armWriteBackoff();
     scheduleFlush(writeBackoffUntil - Date.now());
     console.error("[FIREALERT] shared log", error);
@@ -211,6 +225,14 @@ export function noteGateway(gateway: GatewayLink): void {
   void publishShared({ gateway });
 }
 
+class SharedLogBusy extends Error {
+  retryMs: number;
+  constructor(retryMs: number) {
+    super("shared log HTTP 429");
+    this.retryMs = retryMs;
+  }
+}
+
 async function patchBoard(partial: Record<string, unknown>): Promise<void> {
   const headers = { "Content-Type": "application/json", "User-Agent": "FIREALERT-board" };
   const response = await fetch(BOARD_URL, {
@@ -228,10 +250,12 @@ async function patchBoard(partial: Record<string, unknown>): Promise<void> {
       cache: "no-store",
       signal: AbortSignal.timeout(8000),
     });
+    if (created.status === 429) throw new SharedLogBusy(retryAfterMs(created));
     if (!created.ok) throw new Error(`shared log HTTP ${created.status}`);
     itemsBased = true;
     return;
   }
+  if (response.status === 429) throw new SharedLogBusy(retryAfterMs(response));
   if (!response.ok) throw new Error(`shared log HTTP ${response.status}`);
   itemsBased = true;
 }
@@ -251,8 +275,9 @@ async function fetchBoard(): Promise<SharedBoard> {
       return doc;
     }
     if (response.status === 429 || response.status >= 500) {
-      armReadBackoff();
-      console.error(`[FIREALERT] shared log HTTP ${response.status}`);
+      const wait = response.status === 429 ? retryAfterMs(response) : FAIL_BACKOFF_START_MS;
+      armReadBackoff(wait);
+      console.warn(`[FIREALERT] shared log HTTP ${response.status}. Using the local board for ${Math.round(wait / 1000)} s`);
       return cache?.doc ?? (await readDisk()) ?? emptyBoard();
     }
     if (!response.ok) throw new Error(`shared log HTTP ${response.status}`);
