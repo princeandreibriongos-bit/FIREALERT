@@ -199,7 +199,7 @@ function ShellInner({ children }: { children: ReactNode }) {
 
         <div className="side-brand-foot">
           <StationLogo size={36} className="station-logo-sm" alt="" />
-          <p className="side-foot">BFP Makati · Supplements radio and dispatch. It does not replace trained judgment.</p>
+          <p className="side-foot">Supplements radio. A person decides.</p>
         </div>
       </aside>
 

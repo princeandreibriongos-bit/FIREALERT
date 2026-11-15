@@ -1,13 +1,20 @@
 import type { Metadata } from "next";
-import { DM_Sans, IBM_Plex_Mono } from "next/font/google";
+import { IBM_Plex_Mono, Instrument_Sans, Instrument_Serif } from "next/font/google";
 import { BoardProvider } from "@/components/board-provider";
 import { Shell } from "@/components/shell";
 import "./globals.css";
 
-const sans = DM_Sans({
+const sans = Instrument_Sans({
   subsets: ["latin"],
   display: "swap",
-  variable: "--font-dm",
+  variable: "--font-instrument",
+});
+
+const serif = Instrument_Serif({
+  subsets: ["latin"],
+  weight: "400",
+  display: "swap",
+  variable: "--font-serif",
 });
 
 const mono = IBM_Plex_Mono({
@@ -25,7 +32,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${sans.variable} ${mono.variable}`}>
+    <html lang="en" className={`${sans.variable} ${serif.variable} ${mono.variable}`}>
       <body>
         <BoardProvider>
           <Shell>{children}</Shell>
