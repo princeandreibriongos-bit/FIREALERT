@@ -472,33 +472,48 @@ static void tickFall(WearableReadings &out) {
   out.fall_state = static_cast<uint8_t>(g_fall);
 }
 
+static bool scdAddressAck() {
+  sharedBusOn();
+  Wire.beginTransmission(SCD40_I2C_ADDR);
+  return Wire.endTransmission() == 0;
+}
+
+static void sharedBusOn();
+
 static bool beginScd40() {
   if (!SCD40_ENABLED) {
     FASerial.println("[node-a] SCD40 disabled");
     return false;
   }
 
-  // The gyro no longer shares this bus, so nothing else starts Wire.
-  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, SHARED_I2C_HZ);
-  Wire.setClock(SHARED_I2C_HZ);
-  Wire.setTimeOut(200);
+  sharedBusOn();
+  if (!scdAddressAck()) {
+    FASerial.printf("[node-a] SCD40 0x%02X no ack on SDA=%d SCL=%d\n", SCD40_I2C_ADDR, I2C_SDA_PIN, I2C_SCL_PIN);
+    return false;
+  }
+
   g_scd4x.begin(Wire, SCD40_I2C_ADDR);
   g_scd4x.wakeUp();
   delay(20);
   g_scd4x.stopPeriodicMeasurement();
+  delay(500);
   g_scd4x.reinit();
-  delay(20);
+  delay(30);
 
   uint64_t serialNumber = 0;
-  const int16_t identityError = g_scd4x.getSerialNumber(serialNumber);
+  int16_t identityError = g_scd4x.getSerialNumber(serialNumber);
   if (identityError) {
-    FASerial.printf("[node-a] SCD40 not found at 0x%02X (err %d)\n", SCD40_I2C_ADDR, identityError);
-    return false;
+    g_scd4x.stopPeriodicMeasurement();
+    delay(500);
+    identityError = g_scd4x.getSerialNumber(serialNumber);
   }
-
-  FASerial.printf("[node-a] SCD40 serial %012llX\n", static_cast<unsigned long long>(serialNumber));
-  // A second stop-then-start is what actually makes this chip begin measuring.
+  if (identityError) {
+    FASerial.printf("[node-a] SCD40 0x%02X answered but serial read failed (%d) — starting anyway\n", SCD40_I2C_ADDR, identityError);
+  } else {
+    FASerial.printf("[node-a] SCD40 serial %012llX\n", static_cast<unsigned long long>(serialNumber));
+  }
   g_scd4x.stopPeriodicMeasurement();
+  delay(500);
   const int16_t startError = g_scd4x.startPeriodicMeasurement();
   if (startError) {
     FASerial.printf("[node-a] SCD40 startPeriodicMeasurement failed (%d)\n", startError);
@@ -506,6 +521,7 @@ static bool beginScd40() {
   }
   FASerial.println("[node-a] SCD40 periodic measurement started");
   g_scdArmedMs = millis();
+  g_scdErrors = 0;
   return true;
 }
 
@@ -519,10 +535,10 @@ static void publishLastScd(WearableReadings &out) {
 
 static void readScd40(WearableReadings &out) {
   if (!g_scd40Ready) {
-    // Leave blank (NaN) — motion packets must not wait for CO2.
+    publishLastScd(out);
     return;
   }
-  Wire.setTimeOut(50);
+  sharedBusOn();
   const uint32_t now = millis();
   if (g_scdArmedMs != 0 && now - g_scdArmedMs < 4500) {
     publishLastScd(out);
@@ -533,15 +549,13 @@ static void readScd40(WearableReadings &out) {
   if (readyErr || !ready) {
     publishLastScd(out);
     if (now - g_scdLogMs > 8000) {
-      FASerial.printf("[node-a] SCD40 not ready (err %d) — blanking until next hit\n", readyErr);
+      FASerial.printf("[node-a] SCD40 not ready (err %d) — keeping the last air sample\n", readyErr);
       g_scdLogMs = now;
     }
     if (++g_scdErrors >= 6) {
-      g_scd4x.stopPeriodicMeasurement();
-      const int16_t startError = g_scd4x.startPeriodicMeasurement();
+      FASerial.println("[node-a] SCD40 stalled — it will be started again");
       g_scdErrors = 0;
-      g_scdArmedMs = millis();
-      FASerial.printf("[node-a] SCD40 rearm %d\n", startError);
+      g_scd40Ready = false;
     }
     return;
   }
@@ -550,6 +564,9 @@ static void readScd40(WearableReadings &out) {
   float humidity = NAN;
   const int16_t error = g_scd4x.readMeasurement(co2, temperature, humidity);
   if (!error && co2 > 0) {
+    if (!g_haveScd) {
+      FASerial.printf("[node-a] SCD40 live CO2 %.0f ppm  %.1f C  %.0f %%\n", static_cast<float>(co2), temperature, humidity);
+    }
     g_scdErrors = 0;
     g_haveScd = true;
     g_lastCo2 = static_cast<float>(co2);
@@ -563,12 +580,12 @@ static void readScd40(WearableReadings &out) {
 }
 
 static void configureBme688() {
-  // Fast oversampling; gas heater off so performReading cannot sit ~200ms+.
+  // Heater runs inside the chip. The motion loop does not wait on it.
   g_bme688.setTemperatureOversampling(BME680_OS_2X);
   g_bme688.setHumidityOversampling(BME680_OS_1X);
   g_bme688.setPressureOversampling(BME680_OS_2X);
-  g_bme688.setIIRFilterSize(BME680_FILTER_SIZE_0);
-  g_bme688.setGasHeater(0, 0);
+  g_bme688.setIIRFilterSize(BME680_FILTER_SIZE_3);
+  g_bme688.setGasHeater(320, 150);
 }
 
 static bool beginBme688() {
@@ -628,7 +645,7 @@ static void readBme688(WearableReadings &out) {
 
   // Non-blocking: if the chip is still measuring, keep prior (or blank) values.
   if (!g_bme688.endReading()) {
-    if (millis() - g_bmeStartedMs > 120) {
+    if (millis() - g_bmeStartedMs > 2000) {
       g_bmePending = false;  // give up this round; try again next env tick
     }
     publishLastBme(out);
@@ -643,10 +660,17 @@ static void readBme688(WearableReadings &out) {
   publishLastBme(out);
 }
 
+static void sharedBusOn() {
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, SHARED_I2C_HZ);
+  Wire.setClock(SHARED_I2C_HZ);
+  Wire.setTimeOut(150);
+}
+
 static void maxBusForSample() {
-  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_SPEED_STANDARD);
-  Wire.setClock(I2C_SPEED_STANDARD);
-  Wire.setTimeOut(30);
+  // Do not call Wire.begin() here. Doing it on every sample resets the
+  // peripheral and the SCD40 loses its measurement.
+  Wire.setClock(SHARED_I2C_HZ);
+  Wire.setTimeOut(40);
 }
 
 static void maxBusRestore() { Wire.setClock(SHARED_I2C_HZ); }
@@ -774,15 +798,15 @@ static bool beginMax30102() {
     FASerial.println("[node-a] MAX30102 disabled");
     return false;
   }
-  maxBusForSample();
+  sharedBusOn();
   if (!g_max30102.begin(Wire, I2C_SPEED_STANDARD, MAX30102_I2C_ADDR)) {
     FASerial.printf("[node-a] MAX30102 0x%02X no ack on SDA=%d SCL=%d\n", MAX30102_I2C_ADDR, I2C_SDA_PIN, I2C_SCL_PIN);
     // begin() calls Wire.begin() with no pins. Put GPIO 8/9 back or the SCD40 and MPU disappear too.
-    recoverSharedBus();
+    sharedBusOn();
     return false;
   }
   // begin() calls Wire.begin() with no pins. Put GPIO 8/9 back before setup.
-  maxBusForSample();
+  sharedBusOn();
   // ledMode 2 = red + IR. Estimates only; not a clinical reading.
   g_max30102.setup(0x1F, 4, 2, 100, 411, 4096);
   g_max30102.setPulseAmplitudeRed(0x1F);
@@ -1289,10 +1313,7 @@ static void readMpu6050(WearableReadings &out) {
   if (++g_mpuMisses < 8) return;
   g_mpuMisses = 0;
   g_mpu6050Ready = false;
-  g_scd40Ready = false;
-  g_max30102Ready = false;
-  g_max30102Sampling = false;
-  FASerial.println("[node-a] shared bus went quiet — the three sensors will be probed again");
+  FASerial.println("[node-a] MPU-6050 went quiet — CO2 and the pulse sensor stay up");
 }
 
 static void readMq6(WearableReadings &out) {
@@ -1399,9 +1420,11 @@ void featuresBegin() {
     FASerial.printf("[node-a] GPIO 8/9 probe %d\n", attempt + 1);
     recoverSharedBus();
     delay(60);
-    if (mpuNeeded) g_mpu6050Ready = beginMpu6050(true);
+    // SCD40 first. Its measurement has to start before the other two use the bus.
     if (scdNeeded) g_scd40Ready = beginScd40();
     if (maxNeeded) g_max30102Ready = beginMax30102();
+    if (mpuNeeded) g_mpu6050Ready = beginMpu6050(true);
+    sharedBusOn();
   }
   if (!i2cLinesIdle(BME688_I2C_SDA_PIN, BME688_I2C_SCL_PIN, "GPIO 17/18")) {
     FASerial.println("[node-a] GPIO 17/18 looked busy, trying the BME688 anyway");
@@ -1430,17 +1453,21 @@ static void retryMissingSensors() {
   if (lastMs != 0 && now - lastMs < (sharedDown ? 5000u : 30000u)) return;
   lastMs = now;
   if (sharedDown) {
-    FASerial.println("[node-a] clearing GPIO 8/9 and retrying the three sensors");
-    recoverSharedBus();
-    delay(40);
+    if (!i2cLinesIdle(I2C_SDA_PIN, I2C_SCL_PIN, "GPIO 8/9")) {
+      FASerial.println("[node-a] clearing GPIO 8/9 and retrying the sensors that are down");
+      recoverSharedBus();
+      delay(40);
+    } else {
+      sharedBusOn();
+    }
+  }
+  if (!g_scd40Ready && SCD40_ENABLED) {
+    FASerial.println("[node-a] retrying SCD40");
+    g_scd40Ready = beginScd40();
   }
   if (MPU6050_ENABLED && !g_mpu6050Ready) {
     FASerial.println("[node-a] retrying MPU-6050");
     g_mpu6050Ready = beginMpu6050(!MPU6050_SEPARATE_I2C_BUS);
-  }
-  if (!g_scd40Ready && SCD40_ENABLED) {
-    FASerial.println("[node-a] retrying SCD40 (optional)");
-    g_scd40Ready = beginScd40();
   }
   if (BME688_ENABLED && !g_bme688Ready) {
     FASerial.println("[node-a] retrying BME688 (optional)");
