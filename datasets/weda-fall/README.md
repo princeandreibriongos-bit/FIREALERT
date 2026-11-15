@@ -1,6 +1,6 @@
 # WEDA-FALL, converted for this wearable
 
-Public wrist recordings from [joaojtmarques/WEDA-FALL](https://github.com/joaojtmarques/WEDA-FALL) (João Marques). The watch was a Fitbit Sense. Younger volunteers acted falls onto a mattress. Older volunteers recorded daily movement only, not falls. Cite that repository when this set is used. It has no license file, so these converted files stay attributed to that project and are not a replacement for recordings from this MPU-6050.
+Public wrist recordings from [joaojtmarques/WEDA-FALL](https://github.com/joaojtmarques/WEDA-FALL) (João Marques). The watch was a Fitbit Sense. Younger volunteers acted falls onto a mattress. Older volunteers recorded daily movement only, not falls. This wearable’s MPU-6050 is on the left wrist. The fall score uses magnitude, so the watch wrist and the left wrist share the same weights. Cite that repository when this set is used. It has no license file, so these converted files stay attributed to that project and are not a replacement for recordings from this MPU-6050.
 
 ## What is in `10hz/`
 

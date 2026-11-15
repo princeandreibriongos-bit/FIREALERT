@@ -1,6 +1,6 @@
 # mHealth wrist recordings, converted for this wearable
 
-Public right-wrist recordings from the [UCI mHealth dataset](https://archive.ics.uci.edu/dataset/319/mhealth+dataset) (Oresti Banos, Rafael Garcia, Alejandro Saez, University of Granada). Ten volunteers wore a Shimmer2 on the right wrist, the chest, and the left ankle. This copy keeps the right-wrist accelerometer and gyroscope only. Cite that dataset when these files are used. The license is CC BY 4.0.
+Public recordings from the [UCI mHealth dataset](https://archive.ics.uci.edu/dataset/319/mhealth+dataset) (Oresti Banos, Rafael Garcia, Alejandro Saez, University of Granada). Ten volunteers wore a Shimmer2 on the right wrist, the chest, and the left ankle. This copy keeps that wrist accelerometer and gyroscope only. This wearable’s MPU-6050 is on the **left wrist**. The live score uses acceleration magnitude, which does not change when the same motion is on the other wrist, so the weights are not mirrored. Cite that dataset when these files are used. The license is CC BY 4.0.
 
 ## What is in `10hz/`
 

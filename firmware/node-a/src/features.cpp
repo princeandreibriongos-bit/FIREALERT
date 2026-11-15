@@ -1279,7 +1279,7 @@ void featuresBegin() {
                 BME688_ENABLED, MAX30102_ENABLED, MPU6050_ENABLED, GPS_ENABLED, BATTERY_SENSE_ENABLED,
                 TOUCHSCREEN_INSTALLED, BUZZER_INSTALLED, ECDSA_SIGNING_ENABLED, FALL_MODEL_ID);
   FASerial.println("[node-a] serial commands: fall | rec idle | rec walk | rec fall | rec off");
-  FASerial.println("[node-a] wrist fall score is WEDA-FALL; motion class is idle, walk, or run");
+  FASerial.println("[node-a] left-wrist MPU: WEDA-FALL plus idle, walk, or run");
 }
 
 static void retryMissingSensors() {

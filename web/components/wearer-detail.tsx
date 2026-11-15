@@ -350,7 +350,7 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
               <div className={`callout ${reviewing ? "is-alert" : "is-ok"}`} style={{ flex: 1 }}>
                 <p>{fallCopy(packet)}</p>
                 <p className="fine">
-                  Model: {packet.fall.model}. Motion over the last 3 seconds is Idle, Walk, or Run from the right-wrist mHealth recordings. A fall score at or above 72% replaces that class and holds a 10-second review. The impact cue can open that window too.
+                  Model: {packet.fall.model}. The MPU-6050 is worn on the left wrist. Motion over the last 3 seconds is Idle, Walk, or Run. A fall score at or above 72% replaces that class and holds a 10-second review. The impact cue can open that window too.
                   {packet.activity?.capture ? ` Recording ${packet.activity.capture}.` : ""}
                 </p>
               </div>

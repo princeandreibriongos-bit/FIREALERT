@@ -153,7 +153,7 @@ Heart rate is an infrared peak estimate. A second peak in the same beat (notch o
 
 ### MPU-6050 (accel / gyro)
 
-The gyro shares **GPIO 8 / 9** with the SCD40. Leave the BME688 alone on **GPIO 17 / 18**. Do not put **SDA** or **SCL** on the blue ground stripe.
+The gyro shares **GPIO 8 / 9** with the SCD40. Leave the BME688 alone on **GPIO 17 / 18**. Do not put **SDA** or **SCL** on the blue ground stripe. Wear this module on the **left wrist**.
 
 | MPU-6050 pin | Connect to Node A |
 | --- | --- |
@@ -287,3 +287,4 @@ After Node B connects to Wi-Fi, serial log prints **channel** and **STA MAC**. S
 | 2026-11-03 | MAX30102 recorded as wired on GPIO 8/9 with the SCD40 |
 | 2026-11-14 | MAX30102 samples red+IR and reports estimated BPM and SpO₂ |
 | 2026-11-15 | MPU-6050 VCC corrected to 3.3 V on GPIO 8/9. MQ-6 divider documented on GPIO 1. Motion cadence corrected to 100 ms. BME gas heater noted as off |
+| 2026-11-15 | MPU-6050 placement set to the left wrist |

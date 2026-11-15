@@ -19,7 +19,7 @@ const LIMITS = [
   },
   {
     title: "Motion class is idle, walk, or run",
-    body: "The same 3-second wrist window is labeled from the mHealth right-wrist recordings: standing, sitting, or lying as Idle, walking as Walk, and jogging or running as Run. It is not a firefighter-specific gait model.",
+    body: "The MPU-6050 is worn on the left wrist. The same 3-second window is labeled Idle, Walk, or Run from acceleration magnitude, so a left wrist and a right wrist share the score. Standing, sitting, or lying is Idle. Walking is Walk. Jogging or running is Run.",
   },
   {
     title: "Not clinically measured",

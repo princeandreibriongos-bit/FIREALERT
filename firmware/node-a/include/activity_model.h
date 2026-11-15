@@ -1,6 +1,7 @@
 #pragma once
 
-// Trained on datasets/mhealth 10 Hz wrist windows. Magnitudes only.
+// Trained on datasets/mhealth 10 Hz windows. Worn on the left wrist.
+// Magnitudes only, so the right-wrist source is not mirrored.
 // Classes: 0 idle, 1 walk, 2 run. Confidence is the softmax probability.
 
 static constexpr int ACTIVITY_WINDOW = 30;

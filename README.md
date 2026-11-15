@@ -22,7 +22,7 @@ On a new computer, read **[NEW-PC.md](NEW-PC.md)** before installing or flashing
   - MAX30102 on GPIO 8/9: estimated heart rate and SpO₂ while a finger covers the glass. Not a clinical reading. See [Reading limits](#reading-limits).
   - MPU-6050 on GPIO 8/9, **VCC on 3.3 V**: acceleration and gyro. Powering this module from 5 V pulls SDA/SCL above 3.3 V and locks the pulse sensor.
   - MQ-6: heater on the devkit 5 V pin, analog output on GPIO 1 through a resistor divider. The log shows a raw ADC count, not %LEL.
-  - MPU-6050 is worn on the wrist. The motion class is idle, walk, or run from the mHealth wrist score. Fall grace opens from the WEDA-FALL magnitude score (3 seconds, threshold 0.72) or from the impact heuristic.
+  - MPU-6050 is worn on the **left wrist**. The motion class is idle, walk, or run from acceleration magnitude. Fall grace opens from the WEDA-FALL magnitude score (3 seconds, threshold 0.72) or from the impact heuristic.
 - **Node B (gateway):** Receives ESP-NOW, prints JSON on USB, and can POST a link heartbeat to the hosted board. Live wearer packets reach the dashboard through the USB bridge, not through a direct ESP32 POST to the laptop.
 - **Web board:** `http://localhost:3000` from `web/`. Use `npm start` after `npm run build` for a test or demo. Use `npm run dev` only while editing the site. **Load sample crew** fills FF-01 and FF-02 with simulated packets so the layout can be reviewed without hardware.
 
@@ -78,9 +78,9 @@ On held-out volunteers (user number divisible by 5) a threshold of 0.72 caught 8
 
 The dashboard scores packets that are already arriving, so the wearer page updates before a new flash. The wearable itself opens grace only after both boards are flashed with this firmware. Motion class stays **Waiting** until 30 fresh samples land inside 4 seconds (about a 10 Hz stream). A fall score at or above the threshold is labeled **Fall** and the board holds **grace** for 10 seconds. Otherwise the same window is labeled **Idle**, **Walk**, or **Run**. `cancelled` from the wearable clears the fall hold. A device state of grace, distress, or possible is left as the wearable sent it.
 
-Idle, walk, and run come from the public [mHealth](datasets/mhealth/README.md) right-wrist recordings (standing, sitting, lying, walking, jogging, and running), converted to g and kept at 10 Hz. Held-out volunteers 5 and 10 were classified correctly on 99.7% of 3-second windows. The published gyroscope in that set barely moves, so the live score uses acceleration magnitude only. Climbing, crawling, and a real fireground gait were not in the training set.
+The wearable’s MPU-6050 is on the **left wrist**. Idle, walk, and run come from the public [mHealth](datasets/mhealth/README.md) recordings (standing, sitting, lying, walking, jogging, and running), converted to g and kept at 10 Hz. That sensor was on the volunteers’ right wrist. The live score uses acceleration magnitude only, which is the same on a left wrist, so the weights are not flipped. Held-out volunteers 5 and 10 were classified correctly on 99.7% of 3-second windows. The published gyroscope in that set barely moves. Climbing, crawling, and a real fireground gait were not in the training set.
 
-Record new takes with the sensor on the wrist. Open the wearable serial port at 115200 and type one line:
+Record new takes with the sensor on the left wrist. Open the wearable serial port at 115200 and type one line:
 
 ```text
 rec idle

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Convert the public mHealth right-wrist recordings into this wearable's units.
+"""Convert the public mHealth wrist recordings into this wearable's units.
 
 Source: Oresti Banos et al., UCI mHealth (CC BY 4.0). Shimmer2 on the right wrist,
-50 Hz. Acceleration is m/s^2 and gyroscope is degrees per second. This keeps
+50 Hz. This wearable wears the MPU-6050 on the left wrist. Acceleration is m/s^2
+and gyroscope is degrees per second. The trainer uses magnitude, so the wrist
+side is not flipped. This keeps
 standing, sitting, and lying as idle, walking as walk, and jogging plus running
 as run. Samples are kept every 100 ms so they line up with the wearable.
 """
