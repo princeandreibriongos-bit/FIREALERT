@@ -28,6 +28,7 @@ static constexpr uint32_t HTTP_TIMEOUT_MS = 8000;
 
 // These match the wearable. The gateway reports them so the dashboard does
 // not describe hardware that is not on the board.
-static constexpr bool BUZZER_INSTALLED = false;
+// The buzzer is on the wearable (GPIO 5). This flag tells the dashboard the pin is live.
+static constexpr bool BUZZER_INSTALLED = true;
 static constexpr bool TOUCHSCREEN_INSTALLED = false;
 static constexpr const char *FALL_MODEL_ID = "weda-fall";

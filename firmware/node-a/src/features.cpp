@@ -193,12 +193,17 @@ static bool i2cLinesIdle(int sda, int scl, const char *label) {
   return false;
 }
 
+static bool g_cmdAlarm = false;
+static bool g_cmdAck = false;
+
 static bool pollFallCommand() {
   static char line[128];
   static size_t used = 0;
   bool fired = false;
   while (takeSerialLine(FASerial, line, sizeof(line), used)) {
     if (strcasecmp(line, "fall") == 0) fired = true;
+    if (strcasecmp(line, "alarm") == 0) g_cmdAlarm = true;
+    if (strcasecmp(line, "ack") == 0) g_cmdAck = true;
     if (strcasecmp(line, "scan") == 0) runSensorScan();
     noteCaptureCommand(line);
     char ssid[33];
@@ -470,6 +475,213 @@ static void tickFall(WearableReadings &out) {
   }
 
   out.fall_state = static_cast<uint8_t>(g_fall);
+}
+
+static constexpr uint8_t H_HR_HIGH = 1u << 0;
+static constexpr uint8_t H_HR_LOW = 1u << 1;
+static constexpr uint8_t H_SPO2_LOW = 1u << 2;
+static constexpr uint8_t H_SPO2_CRIT = 1u << 3;
+static constexpr uint8_t H_MANUAL = 1u << 4;
+
+struct PinEdge {
+  uint8_t lowSamples;
+  bool down;
+};
+
+static bool pressedEdge(int pin, bool enabled, PinEdge &edge) {
+  if (!enabled) return false;
+  if (digitalRead(pin) != LOW) {
+    edge.lowSamples = 0;
+    edge.down = false;
+    return false;
+  }
+  if (edge.lowSamples < 8) edge.lowSamples++;
+  if (edge.lowSamples >= 2 && !edge.down) {
+    edge.down = true;
+    return true;
+  }
+  return false;
+}
+
+static void applyBuzzer(bool on) {
+  if (!BUZZER_INSTALLED) return;
+  ledcWrite(BUZZER_PIN, on ? 128 : 0);
+}
+
+// kind: 1 high pulse, 2 low pulse, 3 low oxygen, 4 critical, 5 fall grace, 6 fall distress, 7 raised.
+static bool patternOn(uint8_t kind, uint32_t now) {
+  const uint32_t t = now % 1600u;
+  switch (kind) {
+    case 1:
+      return t < 90u || (t >= 180u && t < 270u);
+    case 2:
+      return t < 500u;
+    case 3:
+      return t < 80u || (t >= 160u && t < 240u) || (t >= 320u && t < 400u);
+    case 4:
+    case 7:
+      return (t % 200u) < 150u;
+    case 5:
+      return (t % 500u) < 250u;
+    case 6:
+      return (t % 160u) < 80u;
+    default:
+      return false;
+  }
+}
+
+static bool absent(float value) {
+  return value != value;
+}
+
+static bool heldLong(uint32_t &since, bool on, uint32_t need, uint32_t now) {
+  if (!on) {
+    since = 0;
+    return false;
+  }
+  if (since == 0) since = now;
+  return (now - since) >= need;
+}
+
+static void releaseLatch(bool &latched, uint32_t &clearSince, bool stillOn, uint32_t now) {
+  if (stillOn || !latched) {
+    clearSince = 0;
+    return;
+  }
+  if (clearSince == 0) clearSince = now;
+  if ((now - clearSince) >= HEALTH_CLEAR_MS) {
+    latched = false;
+    clearSince = 0;
+  }
+}
+
+static void tickHealth(WearableReadings &out) {
+  static PinEdge cancelEdge = {};
+  static PinEdge raiseEdge = {};
+  static uint32_t highSince = 0;
+  static uint32_t lowSince = 0;
+  static uint32_t spo2Since = 0;
+  static uint32_t critSince = 0;
+  static uint32_t highClear = 0;
+  static uint32_t lowClear = 0;
+  static uint32_t spo2Clear = 0;
+  static uint32_t critClear = 0;
+  static bool latchedHigh = false;
+  static bool latchedLow = false;
+  static bool latchedSpo2 = false;
+  static bool latchedCrit = false;
+  static bool manual = false;
+  static uint8_t silenced = 0;
+  static float settled = NAN;
+  static uint32_t exertSince = 0;
+  static uint32_t suspectSince = 0;
+  static uint32_t lastLogged = 0xFFFFFFFFu;
+
+  const uint32_t now = millis();
+  const char *motion = featuresMotionLabel();
+  const bool running = recentVigorous() || strcmp(motion, "run") == 0;
+  const bool still = recentRest();
+  const bool walking = !running && !still && strcmp(motion, "walk") == 0;
+  const float hr = (out.max30102 && !absent(out.heart_rate_bpm)) ? out.heart_rate_bpm : NAN;
+  const float spo2 = (out.max30102 && !absent(out.spo2_percent)) ? out.spo2_percent : NAN;
+
+  bool suspect = false;
+  if (!absent(hr) && still && !absent(settled)) {
+    if (hr >= 140.0f && hr >= settled * 1.55f) suspect = true;
+    if (hr >= 30.0f && hr <= settled * 0.62f && hr >= settled * 0.40f) suspect = true;
+  }
+  if (!suspect && !absent(hr) && hr >= 40.0f && hr <= 130.0f) {
+    settled = absent(settled) ? hr : settled * 0.90f + hr * 0.10f;
+  }
+
+  const float highOn = walking ? HR_HIGH_WALK_BPM : HR_HIGH_IDLE_BPM;
+  const bool highNow = !running && !suspect && !absent(hr) && hr >= (latchedHigh ? highOn - 5.0f : highOn);
+  const bool lowNow = !suspect && !absent(hr) && hr >= 30.0f && hr <= (latchedLow ? HR_LOW_BPM + 5.0f : HR_LOW_BPM);
+  const bool critNow = !absent(spo2) && spo2 <= (latchedCrit ? SPO2_CRITICAL_PERCENT + 1.0f : SPO2_CRITICAL_PERCENT);
+  const bool spo2Now = !absent(spo2) && spo2 <= (latchedSpo2 ? SPO2_LOW_PERCENT + 1.0f : SPO2_LOW_PERCENT);
+
+  if (heldLong(highSince, highNow, HEALTH_SUSTAIN_MS, now)) latchedHigh = true;
+  if (heldLong(lowSince, lowNow, HEALTH_LOW_SUSTAIN_MS, now)) latchedLow = true;
+  if (heldLong(spo2Since, spo2Now, HEALTH_SUSTAIN_MS, now)) latchedSpo2 = true;
+  if (heldLong(critSince, critNow, HEALTH_CRITICAL_SUSTAIN_MS, now)) latchedCrit = true;
+  releaseLatch(latchedHigh, highClear, highNow, now);
+  releaseLatch(latchedLow, lowClear, lowNow, now);
+  releaseLatch(latchedSpo2, spo2Clear, spo2Now, now);
+  releaseLatch(latchedCrit, critClear, critNow, now);
+
+  const bool raise = pressedEdge(ALARM_BUTTON_PIN, ALARM_BUTTON_ENABLED, raiseEdge) || g_cmdAlarm;
+  const bool ack = pressedEdge(CANCEL_BUTTON_PIN, CANCEL_BUTTON_ENABLED, cancelEdge) || g_cmdAck;
+  g_cmdAlarm = false;
+  g_cmdAck = false;
+  if (raise && !ack && !manual) {
+    manual = true;
+    FASerial.println("[node-a] alarm button — wearer raised an alarm");
+  }
+  if (ack && manual) {
+    manual = false;
+    FASerial.println("[node-a] raised alarm cancelled");
+  }
+
+  uint8_t mask = 0;
+  if (latchedHigh) mask |= H_HR_HIGH;
+  if (latchedLow) mask |= H_HR_LOW;
+  if (latchedSpo2 || latchedCrit) mask |= H_SPO2_LOW;
+  if (latchedCrit) mask |= H_SPO2_CRIT;
+  if (manual) mask |= H_MANUAL;
+  if (ack && (mask & ~H_MANUAL) != 0) {
+    silenced |= mask & ~H_MANUAL;
+    FASerial.println("[node-a] health alarm silenced — reading stays on the board");
+  }
+  silenced &= mask;
+  const uint8_t sounding = static_cast<uint8_t>(mask & ~silenced);
+  const bool fallBuzz = out.fall_state == FALL_GRACE || out.fall_state == FALL_DISTRESS || out.fall_state == FALL_POSSIBLE;
+
+  uint8_t kind = 0;
+  if ((sounding & H_MANUAL) != 0) kind = 7;
+  else if ((sounding & H_SPO2_CRIT) != 0 || ((sounding & H_SPO2_LOW) != 0 && (sounding & (H_HR_HIGH | H_HR_LOW)) != 0)) kind = 4;
+  else if (fallBuzz && out.fall_state == FALL_DISTRESS) kind = 6;
+  else if ((sounding & H_SPO2_LOW) != 0) kind = 3;
+  else if ((sounding & H_HR_LOW) != 0) kind = 2;
+  else if ((sounding & H_HR_HIGH) != 0) kind = 1;
+  else if (fallBuzz) kind = 5;
+  applyBuzzer(patternOn(kind, now));
+
+  if (sounding != 0 || fallBuzz) out.alert_outputs = static_cast<uint8_t>(out.alert_outputs | ALERT_BUZZER | ALERT_SCREEN);
+  else if (mask != 0) out.alert_outputs = static_cast<uint8_t>(out.alert_outputs | ALERT_SCREEN);
+
+  const bool exertNow = running && !absent(hr) && hr >= HR_HIGH_IDLE_BPM && !latchedHigh;
+  if (!exertNow) exertSince = 0;
+  else if (exertSince == 0) exertSince = now;
+  const bool exertion = exertNow && (now - exertSince) >= 1500u;
+  if (!suspect) suspectSince = 0;
+  else if (suspectSince == 0) suspectSince = now;
+  const bool suspectHeld = suspect && (now - suspectSince) >= 1500u;
+  uint32_t flags = 0;
+  if (latchedHigh) flags |= FLAG_HR_HIGH;
+  if (latchedLow) flags |= FLAG_HR_LOW;
+  if ((mask & H_SPO2_LOW) != 0) flags |= FLAG_SPO2_LOW;
+  if (latchedCrit) flags |= FLAG_SPO2_CRITICAL;
+  if (manual) flags |= FLAG_MANUAL_ALARM;
+  if (mask != 0 && sounding == 0) flags |= FLAG_HEALTH_SILENCED;
+  if (exertion) flags |= FLAG_EXERTION_NOTE;
+  if (suspectHeld) flags |= FLAG_PULSE_SUSPECT;
+  out.health_flags = flags;
+
+  if (flags != lastLogged) {
+    lastLogged = flags;
+    const char *line = "Pulse and oxygen are inside the alarm limits.";
+    if ((sounding & H_MANUAL) != 0) line = "Wearer raised an alarm from the button.";
+    else if (sounding != 0 && (sounding & H_SPO2_LOW) != 0 && (sounding & (H_HR_HIGH | H_HR_LOW)) != 0)
+      line = "Blood oxygen is low and the pulse is outside range while the wearer is not running. Critical alarm.";
+    else if ((sounding & H_SPO2_CRIT) != 0) line = "Blood oxygen is critically low. Alarm on.";
+    else if ((sounding & H_SPO2_LOW) != 0) line = "Blood oxygen is low. Alarm on.";
+    else if ((sounding & H_HR_LOW) != 0) line = "Heart rate is low. Alarm on.";
+    else if ((sounding & H_HR_HIGH) != 0) line = "Heart rate has stayed high and the wrist is not in a run. Alarm on.";
+    else if ((flags & FLAG_HEALTH_SILENCED) != 0) line = "Wearer silenced the health alarm. The concern stays until the reading recovers.";
+    else if (exertion) line = "Heart rate is high while running. That matches exertion, so no alarm.";
+    else if (suspect) line = "Pulse jumped while the wrist was still. No alarm until the reading settles.";
+    FASerial.printf("[node-a] health: %s\n", line);
+  }
 }
 
 static void sharedBusOn();
@@ -1421,9 +1633,13 @@ void featuresBegin() {
   if (CANCEL_BUTTON_ENABLED) {
     pinMode(CANCEL_BUTTON_PIN, INPUT_PULLUP);
   }
+  if (ALARM_BUTTON_ENABLED) {
+    pinMode(ALARM_BUTTON_PIN, INPUT_PULLUP);
+  }
   if (BUZZER_INSTALLED) {
     pinMode(BUZZER_PIN, OUTPUT);
-    digitalWrite(BUZZER_PIN, LOW);
+    ledcAttach(BUZZER_PIN, BUZZER_TONE_HZ, 8);
+    ledcWrite(BUZZER_PIN, 0);
   }
 
   if (MPU6050_SEPARATE_I2C_BUS && MPU6050_ENABLED) {
@@ -1456,8 +1672,11 @@ void featuresBegin() {
   FASerial.printf("[node-a] placeholders bme=%d max30102=%d mpu=%d gps=%d battery=%d screen=%d buzzer=%d ecdsa=%d model=%s\n",
                 BME688_ENABLED, MAX30102_ENABLED, MPU6050_ENABLED, GPS_ENABLED, BATTERY_SENSE_ENABLED,
                 TOUCHSCREEN_INSTALLED, BUZZER_INSTALLED, ECDSA_SIGNING_ENABLED, FALL_MODEL_ID);
-  FASerial.println("[node-a] serial commands: fall | rec idle | rec walk | rec fall | rec off");
+  FASerial.println("[node-a] serial commands: fall | alarm | ack | rec idle | rec walk | rec fall | rec off");
   FASerial.println("[node-a] left-wrist MPU: WEDA-FALL plus idle, walk, or run");
+  FASerial.printf("[node-a] health: cancel GPIO %d, raise GPIO %d, buzzer GPIO %d\n", CANCEL_BUTTON_PIN, ALARM_BUTTON_PIN,
+                  BUZZER_PIN);
+  FASerial.println("[node-a] high pulse is not alarmed during a run; low pulse and low oxygen still are");
 }
 
 static void retryMissingSensors() {
@@ -1587,6 +1806,7 @@ void featuresRead(WearableReadings &out) {
   eiActivityPushSample(out);
   noteWeda(out);
   tickFall(out);
+  tickHealth(out);
 }
 
 bool featuresSign(TelemetryPacket &packet) {

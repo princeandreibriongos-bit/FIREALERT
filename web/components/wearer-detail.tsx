@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ageLabel, activityDetail, activityLabel, fmt, manilaTime, uiLabel, vecText } from "@/lib/format";
+import { healthCopy } from "@/lib/health";
 import { airReading, co2Cue, fallNeedsReview, linkState, type NormalizedTelemetry } from "@/lib/telemetry-core";
 import { useBoard } from "./board-provider";
 import { Badge, EmptyState, Metric, SensorStatus } from "./ui";
@@ -99,6 +100,20 @@ function lightDetail(name: string, count: number | null) {
   if (count == null) return `${name} count is not in this packet yet.`;
   if (count < 5000) return `${name} is at the empty-glass level. Cover the sensor.`;
   return `${name} is high enough for a fingertip on the glass.`;
+}
+
+function HealthCallout({ packet }: { packet: NormalizedTelemetry }) {
+  const copy = healthCopy(packet.health, packet.activity.label);
+  return (
+    <div className={`callout ${copy.tone === "alert" ? "is-alert" : copy.tone === "warn" ? "is-warn" : "is-ok"}`}>
+      {copy.lines.map((line) => (
+        <p key={line}>{line}</p>
+      ))}
+      <p className="fine">
+        A high pulse during a run does not sound. It has to stay high for about 8 seconds while the wearer is still or walking. A low pulse waits about 10 seconds. Low oxygen waits about 8 seconds, and oxygen under 88% waits about 5 seconds. Cancel is GPIO 4. Raise is GPIO 40. The buzzer is GPIO 5, with a different pattern for each alarm. These sentences are estimates, not a clinical reading.
+      </p>
+    </div>
+  );
 }
 
 function PulseStrip({ packet, title }: { packet: NormalizedTelemetry; title?: string }) {
@@ -223,6 +238,7 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
               <p>{fallCopy(packet)}</p>
               <p className="fine">Open Motion for acceleration and the model slot.</p>
             </div>
+            <HealthCallout packet={packet} />
             <SensorStatus
               scd40={packet.scd40.installed}
               bme688={packet.bme688.installed}
@@ -282,6 +298,7 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
               </p>
               {hardwareBadge(packet.max30102.installed, packet.max30102.heart_rate_bpm != null || packet.max30102.spo2_percent != null)}
             </div>
+            <HealthCallout packet={packet} />
             <PulseStrip packet={packet} />
             <section className="card">
               <h2 className="card-title">What the raw light means</h2>

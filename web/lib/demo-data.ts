@@ -17,6 +17,16 @@ export function buildSampleCrew(now = Date.now()): { raw: RawTelemetry; received
     local_ui: { touchscreen: "not_installed" as const, buzzer: "not_installed" as const },
     gps: { ok: false, fix: "none", latitude: null, longitude: null, altitude_m: null, satellites: null },
     fall: { state: "idle", model: "none", grace_remaining_ms: 0 },
+    health: {
+      hr_high: false,
+      hr_low: false,
+      spo2_low: false,
+      spo2_critical: false,
+      manual: false,
+      silenced: false,
+      exertion: false,
+      suspect_pulse: false,
+    },
   };
 
   return [

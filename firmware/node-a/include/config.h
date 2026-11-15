@@ -82,14 +82,29 @@ static constexpr float BATTERY_DIVIDER_RATIO = 2.0f;  // placeholder until the d
 static constexpr float BATTERY_FULL_V = 4.2f;
 static constexpr float BATTERY_EMPTY_V = 3.3f;
 
-static constexpr bool BUZZER_INSTALLED = false;
+// The pin is driven even before a buzzer is soldered. An open GPIO 5 just sits quiet.
+static constexpr bool BUZZER_INSTALLED = true;
 static constexpr int BUZZER_PIN = 5;
+static constexpr uint32_t BUZZER_TONE_HZ = 2700;
 static constexpr bool TOUCHSCREEN_INSTALLED = false;
 // Reserved, not initialized: CS 10, DC 11, RST 12, BL 13, MOSI 14, SCK 21, touch CS 7.
 
 static constexpr bool CANCEL_BUTTON_ENABLED = true;
-static constexpr int CANCEL_BUTTON_PIN = 4;  // active low, internal pull-up
+static constexpr int CANCEL_BUTTON_PIN = 4;  // active low, internal pull-up. Cancels a fall and silences a health alarm.
+static constexpr bool ALARM_BUTTON_ENABLED = true;
+static constexpr int ALARM_BUTTON_PIN = 40;  // active low, internal pull-up. Wearer raises an alarm.
 static constexpr uint32_t FALL_GRACE_MS = 10000;
+
+// Prototype pulse limits, not a clinical threshold. A run suppresses only the high-pulse alarm.
+static constexpr float HR_HIGH_IDLE_BPM = 120.0f;
+static constexpr float HR_HIGH_WALK_BPM = 150.0f;
+static constexpr float HR_LOW_BPM = 45.0f;
+static constexpr float SPO2_LOW_PERCENT = 92.0f;
+static constexpr float SPO2_CRITICAL_PERCENT = 88.0f;
+static constexpr uint32_t HEALTH_SUSTAIN_MS = 8000;
+static constexpr uint32_t HEALTH_LOW_SUSTAIN_MS = 10000;
+static constexpr uint32_t HEALTH_CRITICAL_SUSTAIN_MS = 5000;
+static constexpr uint32_t HEALTH_CLEAR_MS = 4000;
 
 // Shoulder idle/walk model removed. Wrist recordings use the serial "rec" command.
 // Fall grace still uses the impact heuristic. No classifier is linked.

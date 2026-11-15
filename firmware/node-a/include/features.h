@@ -43,6 +43,8 @@ struct WearableReadings {
   uint8_t fall_state;
   uint16_t grace_remaining_ms;
   uint8_t alert_outputs;
+  // FLAG_HR_HIGH and the other health bits. The packet ORs these in without growing.
+  uint32_t health_flags;
 };
 
 void featuresBegin();

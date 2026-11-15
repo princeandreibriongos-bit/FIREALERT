@@ -18,10 +18,10 @@ Single source of truth for wiring is `firmware/node-a/include/config.h` and `fir
 | **9** | I2C **SCL** | SCD40, MAX30102, MPU-6050 (bus 0) | `I2C_SCL_PIN` | **In use** |
 | **17** | I2C **SDA** | BME688 (bus 1, when separate) | `BME688_I2C_SDA_PIN` | **In use** |
 | **18** | I2C **SCL** | BME688 (bus 1, when separate) | `BME688_I2C_SCL_PIN` | **In use** |
-| **40** | — | Free. Do not use for the gyro while SDA/SCL are on the SCD40 bus | — | Open |
+| **40** | Digital in (pull-up, **active low**) | Raise-alarm button | `ALARM_BUTTON_ENABLED` | **Ready** |
 | **41** | — | Free. Do not use for the gyro while SDA/SCL are on the SCD40 bus | — | Open |
-| **4** | Digital in (pull-up, **active low**) | Fall cancel button | `CANCEL_BUTTON_ENABLED` | **In use** |
-| **5** | Digital out | Buzzer (+) | `BUZZER_INSTALLED` | Reserved / not fitted |
+| **4** | Digital in (pull-up, **active low**) | Cancel button. Stops a fall cue and silences a health alarm | `CANCEL_BUTTON_ENABLED` | **In use** |
+| **5** | Digital out, 2.7 kHz tone | Buzzer (+) | `BUZZER_INSTALLED` | **Ready** |
 | **6** | ADC | Battery divider sense | `BATTERY_SENSE_ENABLED` | Reserved / not fitted |
 | **7** | Digital | Touch controller CS (planned) | `TOUCHSCREEN_INSTALLED` | Reserved, not initialized |
 | **10** | SPI CS | Display CS (planned) | — | Reserved, not initialized |
@@ -181,25 +181,36 @@ Baud: **9600** (`GPS_BAUD`). Enable: `GPS_ENABLED = true` when driver is linked.
 
 ---
 
-### Fall cancel button (live)
+### Cancel button (live)
 
 | Button | Connect to Node A |
 | --- | --- |
 | One leg | **GPIO 4** |
 | Other leg | **GND** |
 
-Internal **pull-up**; press = **LOW**. Used during fall grace to cancel the cue.
+Internal **pull-up**; press = **LOW**. During a fall this cancels the cue. During a pulse or oxygen alarm it silences the buzzer until the reading recovers. A raised alarm is cleared by the same press. The concern stays on the dashboard while the reading is still outside the limit.
 
 ---
 
-### Buzzer (planned)
+### Raise-alarm button (ready)
+
+| Button | Connect to Node A |
+| --- | --- |
+| One leg | **GPIO 40** |
+| Other leg | **GND** |
+
+Internal **pull-up**; press = **LOW**. The wearer raises an alarm that does not depend on the pulse or oxygen reading. GPIO 4 clears it. Type `alarm` on the wearable serial port to raise the same alarm, and `ack` to cancel it, before the buttons are wired.
+
+---
+
+### Buzzer (ready)
 
 | Buzzer | Connect to Node A |
 | --- | --- |
 | Control (+) / signal | **GPIO 5** |
 | GND | **GND** |
 
-Enable in firmware: `BUZZER_INSTALLED = true`.
+`BUZZER_INSTALLED` is on. The pin plays a 2.7 kHz tone in a different pattern for a high pulse, a low pulse, low oxygen, a critical combination, a fall, and a raised alarm. A passive piezo or a 3.3 V active buzzer module can use this pin. Leave it open until the part is fitted. The pin simply stays low when no alarm is sounding.
 
 ---
 
@@ -288,3 +299,4 @@ After Node B connects to Wi-Fi, serial log prints **channel** and **STA MAC**. S
 | 2026-11-14 | MAX30102 samples red+IR and reports estimated BPM and SpO₂ |
 | 2026-11-15 | MPU-6050 VCC corrected to 3.3 V on GPIO 8/9. MQ-6 divider documented on GPIO 1. Motion cadence corrected to 100 ms. BME gas heater noted as off |
 | 2026-11-15 | MPU-6050 placement set to the left wrist |
+| 2026-11-15 | Health alarms: buzzer on GPIO 5, cancel on GPIO 4, raise on GPIO 40. High pulse is suppressed during a run |

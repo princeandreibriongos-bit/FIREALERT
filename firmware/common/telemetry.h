@@ -32,6 +32,15 @@ enum TelemetryFlags : uint32_t {
   FLAG_SIGNED = 1u << 9,
   FLAG_UPLINK_CELLULAR = 1u << 10,
   FLAG_MQ6_OK = 1u << 11,
+  // Health decisions made on the wearable. A high pulse during a run is not FLAG_HR_HIGH.
+  FLAG_HR_HIGH = 1u << 12,
+  FLAG_HR_LOW = 1u << 13,
+  FLAG_SPO2_LOW = 1u << 14,
+  FLAG_SPO2_CRITICAL = 1u << 15,
+  FLAG_MANUAL_ALARM = 1u << 16,
+  FLAG_HEALTH_SILENCED = 1u << 17,
+  FLAG_EXERTION_NOTE = 1u << 18,
+  FLAG_PULSE_SUSPECT = 1u << 19,
 };
 
 enum FallState : uint8_t {

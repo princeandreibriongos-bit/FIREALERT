@@ -10,6 +10,7 @@ On a new computer, read **[NEW-PC.md](NEW-PC.md)** before installing or flashing
 
 - **Monitoring board.** Crew list, physiology, environment, motion and fall, location, signature status, incidents, and advisory driving routes. Sensors that are not installed stay marked awaiting hardware.
 - **Fall grace period.** A 10-second cancel window is in the firmware. The Edge Impulse model slot is empty, so motion alone does not raise a cue. Type `fall` on the wearable serial port to start the window. GPIO 4 (pull-up, active low) cancels it.
+- **Health alarms.** A high pulse is alarmed only when it stays high while the wearer is not running. A low pulse, low blood oxygen, and a raised alarm each have their own buzzer pattern. GPIO 4 silences a false health alarm. GPIO 40 raises one. The buzzer is GPIO 5. Type `alarm` or `ack` on the wearable serial port to try them before the buttons are wired.
 - **Signed telemetry slot.** Packet version 2 carries every capstone field. ECDSA P-256 can sign the prefix once a key is provisioned. A signature checks authenticity and integrity. It does not encrypt the packet. The gateway still accepts the older 24-byte packet.
 - **Incidents and routes.** Save an address and the board geocodes it, then requests a driving option from an approximate Malugay Street origin. Routes are advisory.
 - **Router form.** Wi-Fi name and password are entered on the dashboard and stored on the computer and on the ESP32. Changing routers does not require an edit to `config.h` after the boards are flashed with this firmware.
@@ -68,7 +69,7 @@ Wearer id, telemetry URL, Node B MAC, and the ESP-NOW channel are still in:
 
 **Pin map (all boards, all modules):** see **[firmware/PINOUT.md](firmware/PINOUT.md)**.
 
-Summary for Node A: SCD40, MAX30102 (`0x57`, INT open), and MPU-6050 share **GPIO 8 (SDA)** and **GPIO 9 (SCL)**. GPIO 8 is SDA. GPIO 9 is SCL. By default the BME688 uses a **second I2C bus** on **GPIO 17 (SDA)** and **GPIO 18 (SCL)** (`BME688_SEPARATE_I2C_BUS` in `config.h`). MQ-6 analog is **GPIO 1**. GPS uses UART **15/16**. Cancel button is **GPIO 4**. The full map is **PINOUT.md**.
+Summary for Node A: SCD40, MAX30102 (`0x57`, INT open), and MPU-6050 share **GPIO 8 (SDA)** and **GPIO 9 (SCL)**. GPIO 8 is SDA. GPIO 9 is SCL. By default the BME688 uses a **second I2C bus** on **GPIO 17 (SDA)** and **GPIO 18 (SCL)** (`BME688_SEPARATE_I2C_BUS` in `config.h`). MQ-6 analog is **GPIO 1**. GPS uses UART **15/16**. Cancel button is **GPIO 4**. Raise-alarm button is **GPIO 40**. Buzzer is **GPIO 5**. The full map is **PINOUT.md**.
 
 ## Motion model
 

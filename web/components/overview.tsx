@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { gatewayPhase, newestHardware, wearablePhase } from "@/lib/connection";
+import { healthBadge, healthCopy, healthNeedsReview } from "@/lib/health";
 import { airNeedsAttention, airReading, fallNeedsReview, linkState } from "@/lib/telemetry-core";
 import { ageLabel, activityLabel, fmt, manilaTime, vecMagnitude } from "@/lib/format";
 import { useBoard } from "./board-provider";
@@ -33,12 +34,14 @@ export function Overview() {
   const live = crew.filter((person) => linkState(person.received_at, now) === "live").length;
   const stale = crew.filter((person) => linkState(person.received_at, now) !== "live");
   const air = crew.filter((person) => airNeedsAttention(airReading(person, items ?? []).kind));
+  const fallAlerts = crew.filter((person) => fallNeedsReview(person.fall.state));
+  const healthAlerts = crew.filter((person) => healthNeedsReview(person.health));
   const open = incidents.filter((incident) => incident.status === "open");
   const simulated = crew.some((person) => person.simulated);
   const recent = (items ?? []).slice(0, 6);
   const ranked = [...crew].sort((a, b) => {
     const score = (person: (typeof crew)[number]) =>
-      fallNeedsReview(person.fall.state) ? 0 : linkState(person.received_at, now) === "live" ? 1 : 2;
+      fallNeedsReview(person.fall.state) || healthNeedsReview(person.health) ? 0 : linkState(person.received_at, now) === "live" ? 1 : 2;
     return score(a) - score(b) || a.wearer_id.localeCompare(b.wearer_id);
   });
   const loading = items === null && !error;
@@ -207,17 +210,37 @@ export function Overview() {
                   Open crew
                 </Link>
               </div>
-              {alerts.length === 0 && air.length === 0 && stale.length === 0 ? (
+              {fallAlerts.length === 0 && healthAlerts.length === 0 && air.length === 0 && stale.length === 0 ? (
                 <div className="callout is-ok">
-                  <p>No fall cues, elevated CO₂, or stale links right now.</p>
+                  <p>No fall cues, health alarms, elevated CO₂, or stale links right now.</p>
                 </div>
               ) : (
                 <div className="stack">
-                  {alerts.length > 0 ? (
+                  {healthAlerts.length > 0 ? (
+                    <div>
+                      <p className="section-label">Health alarm</p>
+                      <ul className="attention-list">
+                        {healthAlerts.map((person) => {
+                          const copy = healthCopy(person.health, person.activity.label);
+                          return (
+                            <li key={person.wearer_id}>
+                              <Link className={`attention-card ${copy.tone === "alert" ? "is-alert" : "is-warn"}`} href={`/crew/${person.wearer_id}?tab=physiology`}>
+                                <strong>
+                                  {person.wearer_id} · {healthBadge(person.health) ?? "Health"}
+                                </strong>
+                                <span>{copy.lines[0]}</span>
+                              </Link>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {fallAlerts.length > 0 ? (
                     <div>
                       <p className="section-label">Fall review</p>
                       <ul className="attention-list">
-                        {alerts.map((person) => (
+                        {fallAlerts.map((person) => (
                           <li key={person.wearer_id}>
                             <Link className="attention-card is-alert" href={`/crew/${person.wearer_id}?tab=motion`}>
                               <strong>
@@ -338,8 +361,8 @@ export function Overview() {
                           </span>
                         </strong>
                         <span>
-                          {fallNeedsReview(person.fall.state) ? (
-                            <Badge tone="alert">{person.fall.state}</Badge>
+                          {fallNeedsReview(person.fall.state) || healthNeedsReview(person.health) ? (
+                            <Badge tone="alert">{healthBadge(person.health) ?? person.fall.state}</Badge>
                           ) : (
                             <Badge tone={link === "live" ? "live" : "caution"}>{link === "live" ? "Live" : "Stale"}</Badge>
                           )}

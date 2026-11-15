@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { activityLabel, fmt, manilaTime, vecMagnitude } from "@/lib/format";
+import { healthBadge } from "@/lib/health";
 import { FALL_STATES, type FallState } from "@/lib/telemetry-core";
 import { useBoard } from "./board-provider";
 import { Badge, EmptyState, PageHeader } from "./ui";
@@ -49,6 +50,7 @@ export function PacketLog() {
       "mq6_raw",
       "heart_rate_bpm",
       "spo2_percent",
+      "health",
       "max_red",
       "max_ir",
       "motion",
@@ -79,6 +81,7 @@ export function PacketLog() {
         row.mq6.raw == null ? "" : String(row.mq6.raw),
         row.max30102.heart_rate_bpm == null ? "" : String(row.max30102.heart_rate_bpm),
         row.max30102.spo2_percent == null ? "" : String(row.max30102.spo2_percent),
+        healthBadge(row.health) ?? (row.health.reported ? "quiet" : ""),
         row.max30102.red == null ? "" : String(row.max30102.red),
         row.max30102.ir == null ? "" : String(row.max30102.ir),
         row.activity?.label ?? "",
@@ -189,6 +192,7 @@ export function PacketLog() {
                 <th>MQ-6</th>
                 <th>Heart rate</th>
                 <th>SpO₂</th>
+                <th>Health</th>
                 <th>Red</th>
                 <th>Infrared</th>
                 <th>Fall</th>
@@ -217,6 +221,7 @@ export function PacketLog() {
                   <td>{fmt(row.mq6.raw, 0)}</td>
                   <td>{fmt(row.max30102.heart_rate_bpm, 0)}</td>
                   <td>{fmt(row.max30102.spo2_percent, 0)}</td>
+                  <td>{healthBadge(row.health) ?? (row.health.reported ? "Quiet" : "—")}</td>
                   <td>{fmt(row.max30102.red, 0)}</td>
                   <td>{fmt(row.max30102.ir, 0)}</td>
                   <td>{row.fall.state === "distress" || row.fall.state === "possible" || row.fall.state === "grace" ? <Badge tone="alert">{row.fall.state}</Badge> : "—"}</td>

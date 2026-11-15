@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ageLabel, activityLabel, fmt } from "@/lib/format";
+import { healthBadge, healthNeedsReview, personNeedsReview } from "@/lib/health";
 import { airReading, co2Cue, fallNeedsReview, linkState, type NormalizedTelemetry } from "@/lib/telemetry-core";
 import { useBoard } from "./board-provider";
 import { Icon } from "./icons";
@@ -12,15 +13,16 @@ import { Badge, EmptyState, PageHeader, SensorStatus } from "./ui";
 type Filter = "all" | "review" | "live" | "stale";
 
 function toneOf(person: NormalizedTelemetry, now: number): "alert" | "stale" | "live" {
-  if (fallNeedsReview(person.fall.state)) return "alert";
+  if (personNeedsReview(person)) return "alert";
   if (linkState(person.received_at, now) !== "live") return "stale";
   return "live";
 }
 
 function rank(person: NormalizedTelemetry, now: number) {
   if (person.fall.state === "distress") return 0;
+  if (personNeedsReview(person) && !person.health.silenced) return 0;
   if (person.fall.state === "grace") return 1;
-  if (person.fall.state === "possible") return 2;
+  if (person.fall.state === "possible" || person.health.silenced) return 2;
   if (linkState(person.received_at, now) !== "live") return 4;
   return 3;
 }
@@ -40,7 +42,7 @@ export function CrewBoard() {
   const counts = useMemo(() => {
     return {
       all: crew.length,
-      review: crew.filter((person) => fallNeedsReview(person.fall.state)).length,
+      review: crew.filter((person) => personNeedsReview(person)).length,
       live: crew.filter((person) => linkState(person.received_at, now) === "live").length,
       stale: crew.filter((person) => linkState(person.received_at, now) !== "live").length,
     };
@@ -49,7 +51,7 @@ export function CrewBoard() {
   const visible = crew
     .filter((person) => person.wearer_id.toLowerCase().includes(query.trim().toLowerCase()))
     .filter((person) => {
-      if (filter === "review") return fallNeedsReview(person.fall.state);
+      if (filter === "review") return personNeedsReview(person);
       if (filter === "live") return linkState(person.received_at, now) === "live";
       if (filter === "stale") return linkState(person.received_at, now) !== "live";
       return true;
@@ -108,12 +110,16 @@ export function CrewBoard() {
           const link = linkState(person.received_at, now);
           const cue = co2Cue(person.scd40.co2_ppm, person.scd40.installed);
           const air = airReading(person, items ?? []);
+          const health = healthBadge(person.health);
           return (
             <Link key={person.wearer_id} href={`/crew/${person.wearer_id}`} className="person-card" data-tone={toneOf(person, now)}>
               <div className="person-top">
                 <span className="person-id">{person.wearer_id}</span>
                 <span className="badge-row">
                   {fallNeedsReview(person.fall.state) ? <Badge tone="alert">{person.fall.state}</Badge> : null}
+                  {health ? (
+                    <Badge tone={healthNeedsReview(person.health) && !person.health.silenced ? "alert" : "caution"}>{health}</Badge>
+                  ) : null}
                   <Badge tone={person.activity?.label && person.activity.label !== "waiting" ? "live" : "wait"}>
                     {activityLabel(person.activity?.label)}
                   </Badge>

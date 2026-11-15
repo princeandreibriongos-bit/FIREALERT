@@ -6,6 +6,18 @@ export type Uplink = "wifi" | "cellular";
 export type UiState = "not_installed" | "requested_not_installed" | "installed" | "active";
 export type Co2Cue = "awaiting" | "routine" | "elevated" | "high";
 
+export type HealthReport = {
+  reported: boolean;
+  hrHigh: boolean;
+  hrLow: boolean;
+  spo2Low: boolean;
+  spo2Critical: boolean;
+  manual: boolean;
+  silenced: boolean;
+  exertion: boolean;
+  suspectPulse: boolean;
+};
+
 export type Vec3 = { x: number | null; y: number | null; z: number | null };
 
 export type RawTelemetry = {
@@ -61,6 +73,16 @@ export type RawTelemetry = {
   };
   fall?: { state?: string; model?: string; grace_remaining_ms?: number };
   activity?: { label?: string; score?: number | null };
+  health?: {
+    hr_high?: boolean;
+    hr_low?: boolean;
+    spo2_low?: boolean;
+    spo2_critical?: boolean;
+    manual?: boolean;
+    silenced?: boolean;
+    exertion?: boolean;
+    suspect_pulse?: boolean;
+  };
   local_ui?: { touchscreen?: string; buzzer?: string };
 };
 
@@ -106,6 +128,7 @@ export type NormalizedTelemetry = {
   };
   fall: { state: FallState; model: string; grace_remaining_ms: number };
   activity: { label: string; score: number | null; capture: string | null };
+  health: HealthReport;
   local_ui: { touchscreen: UiState; buzzer: UiState };
 };
 
@@ -143,6 +166,33 @@ function text(value: unknown, max: number): string {
 
 function installedReading(installed: boolean, value: unknown): number | null {
   return installed ? num(value) : null;
+}
+
+function healthOf(value: unknown): HealthReport {
+  const blank: HealthReport = {
+    reported: false,
+    hrHigh: false,
+    hrLow: false,
+    spo2Low: false,
+    spo2Critical: false,
+    manual: false,
+    silenced: false,
+    exertion: false,
+    suspectPulse: false,
+  };
+  if (!isRecord(value)) return blank;
+  const on = (key: string) => value[key] === true;
+  return {
+    reported: true,
+    hrHigh: on("hr_high"),
+    hrLow: on("hr_low"),
+    spo2Low: on("spo2_low"),
+    spo2Critical: on("spo2_critical"),
+    manual: on("manual"),
+    silenced: on("silenced"),
+    exertion: on("exertion"),
+    suspectPulse: on("suspect_pulse"),
+  };
 }
 
 function uiState(value: unknown): UiState {
@@ -204,6 +254,7 @@ export function normalizeTelemetry(
   const fall = isRecord(input.fall) ? input.fall : {};
   const activity = isRecord(input.activity) ? input.activity : {};
   const ui = isRecord(input.local_ui) ? input.local_ui : {};
+  const health = healthOf(input.health);
   const uplink = uplinkOf(input.uplink);
   const scdOn = scd.ok === true;
   const bmeOn = bme.ok === true;
@@ -277,6 +328,7 @@ export function normalizeTelemetry(
       grace_remaining_ms: grace != null && grace >= 0 ? Math.min(grace, 120000) : 0,
     },
     activity: activityOf(activity),
+    health,
     local_ui: {
       touchscreen: uiState(ui.touchscreen),
       buzzer: uiState(ui.buzzer),

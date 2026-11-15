@@ -15,6 +15,7 @@ import {
   normalizeTelemetry,
   type NormalizedTelemetry,
 } from "../lib/telemetry-core.ts";
+import { healthBadge, healthCopy, healthNeedsReview } from "../lib/health.ts";
 import { applyWedaView, WEDA_GRACE_MS, type WedaPoint } from "../lib/weda-apply.ts";
 import { WEDA_THRESHOLD, wedaFallScore, type WristSample } from "../lib/weda-fall.ts";
 import { signatureStatus } from "../lib/verify.ts";
@@ -312,6 +313,57 @@ describe("wrist locomotion", () => {
     assert.equal(idle?.label, "idle");
     assert.equal(walk?.label, "walk");
     assert.equal(run?.label, "run");
+  });
+});
+
+describe("health alarms", () => {
+  it("waits for a decision from the wearable", () => {
+    const entry = sample();
+    assert.equal(entry.health.reported, false);
+    assert.equal(healthNeedsReview(entry.health), false);
+    assert.match(healthCopy(entry.health, "idle").lines[0], /has not sent a health decision/);
+  });
+
+  it("treats a high pulse during a run as exertion", () => {
+    const entry = sample({
+      activity: { label: "run", score: 0.9 },
+      health: { exertion: true },
+    });
+    const copy = healthCopy(entry.health, entry.activity.label);
+    assert.equal(entry.health.reported, true);
+    assert.equal(copy.tone, "ok");
+    assert.match(copy.lines.join(" "), /matches exertion/);
+    assert.equal(healthNeedsReview(entry.health), false);
+    assert.equal(healthBadge(entry.health), "Running");
+  });
+
+  it("alarms a high pulse that stays up while the wearer is still", () => {
+    const entry = sample({ activity: { label: "idle", score: 0.9 }, health: { hr_high: true } });
+    const copy = healthCopy(entry.health, "idle");
+    assert.equal(copy.tone, "alert");
+    assert.match(copy.lines.join(" "), /not treated as exertion/);
+    assert.equal(healthBadge(entry.health), "High pulse");
+  });
+
+  it("calls low oxygen plus an abnormal pulse the urgent alarm", () => {
+    const entry = sample({ health: { spo2_low: true, spo2_critical: true, hr_high: true } });
+    assert.match(healthCopy(entry.health, "idle").lines.join(" "), /most urgent/);
+    assert.equal(healthBadge(entry.health), "Critical");
+  });
+
+  it("keeps a silenced low pulse on the board", () => {
+    const entry = sample({ health: { hr_low: true, silenced: true } });
+    const copy = healthCopy(entry.health, "walk");
+    assert.equal(copy.tone, "warn");
+    assert.match(copy.lines.join(" "), /buzzer is quiet/);
+    assert.equal(healthNeedsReview(entry.health), true);
+    assert.equal(healthBadge(entry.health), "Low pulse silenced");
+  });
+
+  it("says when the wearer raised the alarm", () => {
+    const entry = sample({ health: { manual: true } });
+    assert.match(healthCopy(entry.health, "idle").lines[0], /raise button/);
+    assert.equal(healthBadge(entry.health), "Raised");
   });
 });
 

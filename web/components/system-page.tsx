@@ -26,6 +26,10 @@ const LIMITS = [
     body: "Heart rate and estimated SpO₂ are not clinical measurements. Device temperature is air at the sensor, not core body temperature.",
   },
   {
+    title: "Pulse alarms check the wrist first",
+    body: "A high pulse during a run does not sound. The alarm waits until that high pulse stays up while the wearer is still or walking. A low pulse and low blood oxygen alarm on their own. GPIO 4 cancels a false alarm. GPIO 40 raises one. The buzzer is GPIO 5.",
+  },
+  {
     title: "Evaluation still open",
     body: "ISO/IEC 25010 evaluation with station users has not been run. No scores are shown.",
   },

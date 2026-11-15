@@ -216,6 +216,7 @@ static void fillPacket(TelemetryPacket &packet, const WearableReadings &in) {
   if (in.battery) packet.flags |= FLAG_BATTERY_OK;
   if (in.fall_state == FALL_POSSIBLE || in.fall_state == FALL_GRACE) packet.flags |= FLAG_FALL_POSSIBLE;
   if (in.fall_state == FALL_DISTRESS) packet.flags |= FLAG_DISTRESS;
+  packet.flags |= in.health_flags;
 }
 
 void setup() {

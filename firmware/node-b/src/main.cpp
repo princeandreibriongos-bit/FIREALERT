@@ -986,6 +986,16 @@ static bool postV2(const QueuedPacket &item) {
   ui["touchscreen"] = localOutput(wantScreen, TOUCHSCREEN_INSTALLED);
   ui["buzzer"] = localOutput(wantBuzzer, BUZZER_INSTALLED);
 
+  JsonObject health = doc["health"].to<JsonObject>();
+  health["hr_high"] = (packet.flags & FLAG_HR_HIGH) != 0;
+  health["hr_low"] = (packet.flags & FLAG_HR_LOW) != 0;
+  health["spo2_low"] = (packet.flags & FLAG_SPO2_LOW) != 0;
+  health["spo2_critical"] = (packet.flags & FLAG_SPO2_CRITICAL) != 0;
+  health["manual"] = (packet.flags & FLAG_MANUAL_ALARM) != 0;
+  health["silenced"] = (packet.flags & FLAG_HEALTH_SILENCED) != 0;
+  health["exertion"] = (packet.flags & FLAG_EXERTION_NOTE) != 0;
+  health["suspect_pulse"] = (packet.flags & FLAG_PULSE_SUSPECT) != 0;
+
   JsonObject signature = doc["signature"].to<JsonObject>();
   signature["alg"] = "ECDSA-P256-SHA256";
   appendHex(signature, "prefix_hex", packet.signature_len > 0 ? item.data : nullptr,

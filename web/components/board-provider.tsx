@@ -4,7 +4,8 @@ import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Incident } from "@/lib/incidents";
 import type { GatewayLink } from "@/lib/link-status";
-import { fallNeedsReview, latestByWearer, type NormalizedTelemetry } from "@/lib/telemetry-core";
+import { personNeedsReview } from "@/lib/health";
+import { latestByWearer, type NormalizedTelemetry } from "@/lib/telemetry-core";
 
 type BoardResponse = {
   ok: boolean;
@@ -76,7 +77,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   }, [onLanding, refreshBoard]);
 
   const crew = useMemo(() => latestByWearer(items ?? []), [items]);
-  const alerts = useMemo(() => crew.filter((person) => fallNeedsReview(person.fall.state)), [crew]);
+  const alerts = useMemo(() => crew.filter((person) => personNeedsReview(person)), [crew]);
 
   const loadSample = useCallback(async () => {
     setBusy("sample");
