@@ -66,6 +66,11 @@ static constexpr bool MPU6050_ENABLED = true;
 // resistors so the pin stays at or below 2.5 V. The count is relative, not %LEL.
 static constexpr bool MQ6_ENABLED = true;
 static constexpr int MQ6_ADC_PIN = 1;
+// 12-bit count after the resistor divider. Higher means more gas at the heater.
+// 1800 is the alarm level. It is not a percent of the explosive limit.
+static constexpr uint16_t MQ6_ALARM_RAW = 1800;
+static constexpr uint16_t MQ6_ALARM_CLEAR_RAW = 1500;
+static constexpr uint32_t MQ6_ALARM_SUSTAIN_MS = 5000;
 
 // --- GPS (not installed) ---------------------------------------------------
 // Last-known coordinates must never be labeled as the current position.

@@ -30,6 +30,10 @@ const LIMITS = [
     body: "A high pulse during a run does not sound. The alarm waits until that high pulse stays up while the wearer is still or walking. A low pulse and low blood oxygen alarm on their own. GPIO 4 cancels a false alarm. GPIO 40 raises one. The buzzer is GPIO 5.",
   },
   {
+    title: "MQ-6 gas alarm is a relative count",
+    body: "The buzzer sounds when the MQ-6 count stays at or above 1800 for about 5 seconds. GPIO 4 silences it until the count falls. The number is not a percent of the explosive limit, and the heater needs about 10 to 15 minutes after power-up. The BME688 gas resistance is not this alarm.",
+  },
+  {
     title: "Evaluation still open",
     body: "ISO/IEC 25010 evaluation with station users has not been run. No scores are shown.",
   },

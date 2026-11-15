@@ -26,6 +26,7 @@ export function buildSampleCrew(now = Date.now()): { raw: RawTelemetry; received
       silenced: false,
       exertion: false,
       suspect_pulse: false,
+      gas_high: false,
     },
   };
 

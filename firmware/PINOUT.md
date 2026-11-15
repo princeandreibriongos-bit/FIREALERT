@@ -147,7 +147,7 @@ Heart rate is an infrared peak estimate. A second peak in the same beat (notch o
 | AO | **GPIO 1** through two 10 kΩ resistors: one from AO to GPIO 1, one from GPIO 1 to GND |
 | DO | Leave open |
 
-`MQ6_ENABLED` is true. The packet field is the raw ADC count, not a percent LEL. Allow about 10–15 minutes of heater warm-up after each power-up.
+`MQ6_ENABLED` is true. The packet field is the raw ADC count, not a percent LEL. The buzzer sounds when that count stays at or above **1800** for about 5 seconds (`MQ6_ALARM_RAW`). It clears once the count falls below **1500**. GPIO 4 silences the buzzer until then. Allow about 10–15 minutes of heater warm-up after each power-up. The BME688 gas resistance is a separate reading and does not drive this alarm.
 
 ---
 
@@ -300,3 +300,4 @@ After Node B connects to Wi-Fi, serial log prints **channel** and **STA MAC**. S
 | 2026-11-15 | MPU-6050 VCC corrected to 3.3 V on GPIO 8/9. MQ-6 divider documented on GPIO 1. Motion cadence corrected to 100 ms. BME gas heater noted as off |
 | 2026-11-15 | MPU-6050 placement set to the left wrist |
 | 2026-11-15 | Health alarms: buzzer on GPIO 5, cancel on GPIO 4, raise on GPIO 40. High pulse is suppressed during a run |
+| 2026-11-15 | MQ-6 buzzer alarm at a raw count of 1800 |

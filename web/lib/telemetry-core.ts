@@ -16,6 +16,7 @@ export type HealthReport = {
   silenced: boolean;
   exertion: boolean;
   suspectPulse: boolean;
+  gasHigh: boolean;
 };
 
 export type Vec3 = { x: number | null; y: number | null; z: number | null };
@@ -82,6 +83,7 @@ export type RawTelemetry = {
     silenced?: boolean;
     exertion?: boolean;
     suspect_pulse?: boolean;
+    gas_high?: boolean;
   };
   local_ui?: { touchscreen?: string; buzzer?: string };
 };
@@ -179,6 +181,7 @@ function healthOf(value: unknown): HealthReport {
     silenced: false,
     exertion: false,
     suspectPulse: false,
+    gasHigh: false,
   };
   if (!isRecord(value)) return blank;
   const on = (key: string) => value[key] === true;
@@ -192,6 +195,7 @@ function healthOf(value: unknown): HealthReport {
     silenced: on("silenced"),
     exertion: on("exertion"),
     suspectPulse: on("suspect_pulse"),
+    gasHigh: on("gas_high"),
   };
 }
 

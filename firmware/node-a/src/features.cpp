@@ -482,6 +482,7 @@ static constexpr uint8_t H_HR_LOW = 1u << 1;
 static constexpr uint8_t H_SPO2_LOW = 1u << 2;
 static constexpr uint8_t H_SPO2_CRIT = 1u << 3;
 static constexpr uint8_t H_MANUAL = 1u << 4;
+static constexpr uint8_t H_GAS = 1u << 5;
 
 struct PinEdge {
   uint8_t lowSamples;
@@ -508,7 +509,7 @@ static void applyBuzzer(bool on) {
   ledcWrite(BUZZER_PIN, on ? 128 : 0);
 }
 
-// kind: 1 high pulse, 2 low pulse, 3 low oxygen, 4 critical, 5 fall grace, 6 fall distress, 7 raised.
+// kind: 1 high pulse, 2 low pulse, 3 low oxygen, 4 critical, 5 fall grace, 6 fall distress, 7 raised, 8 gas.
 static bool patternOn(uint8_t kind, uint32_t now) {
   const uint32_t t = now % 1600u;
   switch (kind) {
@@ -525,6 +526,8 @@ static bool patternOn(uint8_t kind, uint32_t now) {
       return (t % 500u) < 250u;
     case 6:
       return (t % 160u) < 80u;
+    case 8:
+      return t < 70u || (t >= 140u && t < 210u) || (t >= 280u && t < 350u) || (t >= 420u && t < 490u);
     default:
       return false;
   }
@@ -562,14 +565,17 @@ static void tickHealth(WearableReadings &out) {
   static uint32_t lowSince = 0;
   static uint32_t spo2Since = 0;
   static uint32_t critSince = 0;
+  static uint32_t gasSince = 0;
   static uint32_t highClear = 0;
   static uint32_t lowClear = 0;
   static uint32_t spo2Clear = 0;
   static uint32_t critClear = 0;
+  static uint32_t gasClear = 0;
   static bool latchedHigh = false;
   static bool latchedLow = false;
   static bool latchedSpo2 = false;
   static bool latchedCrit = false;
+  static bool latchedGas = false;
   static bool manual = false;
   static uint8_t silenced = 0;
   static float settled = NAN;
@@ -599,15 +605,19 @@ static void tickHealth(WearableReadings &out) {
   const bool lowNow = !suspect && !absent(hr) && hr >= 30.0f && hr <= (latchedLow ? HR_LOW_BPM + 5.0f : HR_LOW_BPM);
   const bool critNow = !absent(spo2) && spo2 <= (latchedCrit ? SPO2_CRITICAL_PERCENT + 1.0f : SPO2_CRITICAL_PERCENT);
   const bool spo2Now = !absent(spo2) && spo2 <= (latchedSpo2 ? SPO2_LOW_PERCENT + 1.0f : SPO2_LOW_PERCENT);
+  const bool gasNow = out.mq6 && out.mq6_raw != MQ6_RAW_ABSENT &&
+                      out.mq6_raw >= (latchedGas ? MQ6_ALARM_CLEAR_RAW : MQ6_ALARM_RAW);
 
   if (heldLong(highSince, highNow, HEALTH_SUSTAIN_MS, now)) latchedHigh = true;
   if (heldLong(lowSince, lowNow, HEALTH_LOW_SUSTAIN_MS, now)) latchedLow = true;
   if (heldLong(spo2Since, spo2Now, HEALTH_SUSTAIN_MS, now)) latchedSpo2 = true;
   if (heldLong(critSince, critNow, HEALTH_CRITICAL_SUSTAIN_MS, now)) latchedCrit = true;
+  if (heldLong(gasSince, gasNow, MQ6_ALARM_SUSTAIN_MS, now)) latchedGas = true;
   releaseLatch(latchedHigh, highClear, highNow, now);
   releaseLatch(latchedLow, lowClear, lowNow, now);
   releaseLatch(latchedSpo2, spo2Clear, spo2Now, now);
   releaseLatch(latchedCrit, critClear, critNow, now);
+  releaseLatch(latchedGas, gasClear, gasNow, now);
 
   const bool raise = pressedEdge(ALARM_BUTTON_PIN, ALARM_BUTTON_ENABLED, raiseEdge) || g_cmdAlarm;
   const bool ack = pressedEdge(CANCEL_BUTTON_PIN, CANCEL_BUTTON_ENABLED, cancelEdge) || g_cmdAck;
@@ -628,6 +638,7 @@ static void tickHealth(WearableReadings &out) {
   if (latchedSpo2 || latchedCrit) mask |= H_SPO2_LOW;
   if (latchedCrit) mask |= H_SPO2_CRIT;
   if (manual) mask |= H_MANUAL;
+  if (latchedGas) mask |= H_GAS;
   if (ack && (mask & ~H_MANUAL) != 0) {
     silenced |= mask & ~H_MANUAL;
     FASerial.println("[node-a] health alarm silenced — reading stays on the board");
@@ -638,6 +649,7 @@ static void tickHealth(WearableReadings &out) {
 
   uint8_t kind = 0;
   if ((sounding & H_MANUAL) != 0) kind = 7;
+  else if ((sounding & H_GAS) != 0) kind = 8;
   else if ((sounding & H_SPO2_CRIT) != 0 || ((sounding & H_SPO2_LOW) != 0 && (sounding & (H_HR_HIGH | H_HR_LOW)) != 0)) kind = 4;
   else if (fallBuzz && out.fall_state == FALL_DISTRESS) kind = 6;
   else if ((sounding & H_SPO2_LOW) != 0) kind = 3;
@@ -662,6 +674,7 @@ static void tickHealth(WearableReadings &out) {
   if ((mask & H_SPO2_LOW) != 0) flags |= FLAG_SPO2_LOW;
   if (latchedCrit) flags |= FLAG_SPO2_CRITICAL;
   if (manual) flags |= FLAG_MANUAL_ALARM;
+  if (latchedGas) flags |= FLAG_GAS_HIGH;
   if (mask != 0 && sounding == 0) flags |= FLAG_HEALTH_SILENCED;
   if (exertion) flags |= FLAG_EXERTION_NOTE;
   if (suspectHeld) flags |= FLAG_PULSE_SUSPECT;
@@ -671,6 +684,7 @@ static void tickHealth(WearableReadings &out) {
     lastLogged = flags;
     const char *line = "Pulse and oxygen are inside the alarm limits.";
     if ((sounding & H_MANUAL) != 0) line = "Wearer raised an alarm from the button.";
+    else if ((sounding & H_GAS) != 0) line = "MQ-6 gas count stayed at or above 1800. Alarm on. Not a percent LEL.";
     else if (sounding != 0 && (sounding & H_SPO2_LOW) != 0 && (sounding & (H_HR_HIGH | H_HR_LOW)) != 0)
       line = "Blood oxygen is low and the pulse is outside range while the wearer is not running. Critical alarm.";
     else if ((sounding & H_SPO2_CRIT) != 0) line = "Blood oxygen is critically low. Alarm on.";
@@ -1677,6 +1691,8 @@ void featuresBegin() {
   FASerial.printf("[node-a] health: cancel GPIO %d, raise GPIO %d, buzzer GPIO %d\n", CANCEL_BUTTON_PIN, ALARM_BUTTON_PIN,
                   BUZZER_PIN);
   FASerial.println("[node-a] high pulse is not alarmed during a run; low pulse and low oxygen still are");
+  FASerial.printf("[node-a] MQ-6 alarm at %u counts for %lu ms. Not a percent LEL\n", MQ6_ALARM_RAW,
+                  static_cast<unsigned long>(MQ6_ALARM_SUSTAIN_MS));
 }
 
 static void retryMissingSensors() {

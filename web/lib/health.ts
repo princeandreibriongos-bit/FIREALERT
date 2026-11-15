@@ -10,7 +10,7 @@ export type HealthCopy = {
 };
 
 export function healthNeedsReview(health: HealthReport): boolean {
-  return health.hrHigh || health.hrLow || health.spo2Low || health.spo2Critical || health.manual;
+  return health.hrHigh || health.hrLow || health.spo2Low || health.spo2Critical || health.manual || health.gasHigh;
 }
 
 export function personNeedsReview(person: { fall: { state: FallState }; health: HealthReport }): boolean {
@@ -41,6 +41,11 @@ export function healthCopy(health: HealthReport, activityLabel: string): HealthC
 
   if (health.manual && !health.silenced) {
     lines.push("The wearer pressed the raise button. This is a raised alarm, not an automatic reading.");
+  }
+  if (health.gasHigh && !health.silenced) {
+    lines.push(
+      "The MQ-6 gas count has stayed at or above 1800. The buzzer is on. This is a relative level, not a percent of the explosive limit.",
+    );
   }
   if (pulseAndOxygen && !health.silenced) {
     lines.push(
@@ -84,6 +89,8 @@ export function healthBadge(health: HealthReport): string | null {
     return null;
   }
   if (health.manual && !health.silenced) return "Raised";
+  if (health.gasHigh && !health.silenced) return "Gas";
+  if (health.gasHigh) return "Gas silenced";
   if ((health.spo2Critical || (health.spo2Low && (health.hrHigh || health.hrLow))) && !health.silenced) return "Critical";
   if (health.spo2Low || health.spo2Critical) return health.silenced ? "Oxygen silenced" : "Low oxygen";
   if (health.hrLow) return health.silenced ? "Low pulse silenced" : "Low pulse";

@@ -110,7 +110,7 @@ function HealthCallout({ packet }: { packet: NormalizedTelemetry }) {
         <p key={line}>{line}</p>
       ))}
       <p className="fine">
-        A high pulse during a run does not sound. It has to stay high for about 8 seconds while the wearer is still or walking. A low pulse waits about 10 seconds. Low oxygen waits about 8 seconds, and oxygen under 88% waits about 5 seconds. Cancel is GPIO 4. Raise is GPIO 40. The buzzer is GPIO 5, with a different pattern for each alarm. These sentences are estimates, not a clinical reading.
+        A high pulse during a run does not sound. It has to stay high for about 8 seconds while the wearer is still or walking. A low pulse waits about 10 seconds. Low oxygen waits about 8 seconds, and oxygen under 88% waits about 5 seconds. The MQ-6 buzzer starts when the gas count stays at or above 1800 for about 5 seconds. Cancel is GPIO 4. Raise is GPIO 40. The buzzer is GPIO 5, with a different pattern for each alarm. These sentences are estimates, not a clinical reading.
       </p>
     </div>
   );
@@ -355,7 +355,16 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
               <Metric
                 label="MQ-6"
                 value={packet.mq6.installed ? fmt(packet.mq6.raw, 0) : "—"}
-                detail={packet.mq6.installed ? "Relative level, not %LEL" : "Awaiting hardware · GPIO 1"}
+                detail={
+                  !packet.mq6.installed
+                    ? "Awaiting hardware · GPIO 1"
+                    : packet.health.gasHigh
+                      ? packet.health.silenced
+                        ? "Stayed at or above 1800. Buzzer silenced until the count falls."
+                        : "Stayed at or above 1800. Buzzer is on. Not a percent LEL."
+                      : "Relative level. The buzzer starts if this stays at or above 1800. Not a percent LEL."
+                }
+                tone={packet.health.gasHigh ? (packet.health.silenced ? "warn" : "alert") : undefined}
               />
             </div>
           </div>

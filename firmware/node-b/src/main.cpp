@@ -995,6 +995,7 @@ static bool postV2(const QueuedPacket &item) {
   health["silenced"] = (packet.flags & FLAG_HEALTH_SILENCED) != 0;
   health["exertion"] = (packet.flags & FLAG_EXERTION_NOTE) != 0;
   health["suspect_pulse"] = (packet.flags & FLAG_PULSE_SUSPECT) != 0;
+  health["gas_high"] = (packet.flags & FLAG_GAS_HIGH) != 0;
 
   JsonObject signature = doc["signature"].to<JsonObject>();
   signature["alg"] = "ECDSA-P256-SHA256";

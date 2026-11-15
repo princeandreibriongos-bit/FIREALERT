@@ -360,6 +360,23 @@ describe("health alarms", () => {
     assert.equal(healthBadge(entry.health), "Low pulse silenced");
   });
 
+  it("alarms when the MQ-6 count stays high", () => {
+    const entry = sample({ health: { gas_high: true }, mq6: { ok: true, raw: 2100 } });
+    assert.equal(entry.health.gasHigh, true);
+    assert.equal(entry.mq6.raw, 2100);
+    assert.match(healthCopy(entry.health, "idle").lines.join(" "), /1800/);
+    assert.equal(healthCopy(entry.health, "idle").tone, "alert");
+    assert.equal(healthBadge(entry.health), "Gas");
+    assert.equal(healthNeedsReview(entry.health), true);
+  });
+
+  it("keeps a silenced gas alarm on the board", () => {
+    const entry = sample({ health: { gas_high: true, silenced: true } });
+    assert.equal(healthCopy(entry.health, "idle").tone, "warn");
+    assert.equal(healthBadge(entry.health), "Gas silenced");
+    assert.match(healthCopy(entry.health, "idle").lines.join(" "), /buzzer is quiet/);
+  });
+
   it("says when the wearer raised the alarm", () => {
     const entry = sample({ health: { manual: true } });
     assert.match(healthCopy(entry.health, "idle").lines[0], /raise button/);

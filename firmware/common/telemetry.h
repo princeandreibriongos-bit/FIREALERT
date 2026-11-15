@@ -41,6 +41,8 @@ enum TelemetryFlags : uint32_t {
   FLAG_HEALTH_SILENCED = 1u << 17,
   FLAG_EXERTION_NOTE = 1u << 18,
   FLAG_PULSE_SUSPECT = 1u << 19,
+  // MQ-6 raw count stayed at or above the alarm level. Not a percent LEL.
+  FLAG_GAS_HIGH = 1u << 20,
 };
 
 enum FallState : uint8_t {
