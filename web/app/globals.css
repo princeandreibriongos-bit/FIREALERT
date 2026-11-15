@@ -13,80 +13,80 @@
 
   /* Radius */
   --radius-xs: 6px;
-  --radius-sm: 10px;
-  --radius: 18px;
-  --radius-lg: 26px;
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
   --radius-pill: 999px;
 
   /* Type */
-  --font-sans: var(--font-instrument), "Avenir Next", "Segoe UI", sans-serif;
-  --font-display: var(--font-serif), "Iowan Old Style", Georgia, serif;
-  --font-mono: var(--font-plex), ui-monospace, monospace;
+  --font-sans: var(--font-geist), "Segoe UI", sans-serif;
+  --font-display: var(--font-sans);
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
   --text-xs: 0.72rem;
   --text-sm: 0.84rem;
   --text-md: 0.95rem;
   --text-lg: 1.15rem;
   --text-xl: 1.7rem;
-  --text-2xl: clamp(2rem, 3vw, 2.75rem);
-  --tracking-label: 0.16em;
-  --leading-body: 1.55;
-  --leading-tight: 1.15;
+  --text-2xl: clamp(1.75rem, 2.4vw, 2.15rem);
+  --tracking-label: 0.08em;
+  --leading-body: 1.5;
+  --leading-tight: 1.12;
 
   /* Ink */
-  --ink-0: #080808;
-  --ink-1: #0e0e10;
-  --ink-2: #141416;
-  --ink-3: #1b1b1f;
-  --ink-4: #26262c;
-  --ink-5: #34343c;
+  --ink-0: #07080a;
+  --ink-1: #0c0d10;
+  --ink-2: #141518;
+  --ink-3: #1c1d22;
+  --ink-4: #27282e;
+  --ink-5: #35363d;
 
-  /* Paper */
-  --paper: #f4f0e8;
-  --paper-soft: #c9c3b6;
-  --paper-mute: #8f897e;
-  --paper-faint: #6a655c;
+  /* Paper — cool white, not cream */
+  --paper: #f4f4f5;
+  --paper-soft: #d4d4d8;
+  --paper-mute: #a1a1aa;
+  --paper-faint: #71717a;
 
-  /* Copper — the only decorative color */
-  --copper-50: #f8efe4;
-  --copper-100: #f3ddc4;
-  --copper-300: #e8b98a;
-  --copper-400: #d9a066;
-  --copper-500: #b67d45;
-  --copper-700: #6e4524;
-  --copper-dim: rgba(217, 160, 102, 0.12);
-  --copper-line: rgba(217, 160, 102, 0.38);
-  --copper-glow: rgba(217, 160, 102, 0.18);
+  /* Neutral highlight. Kept under the old names so existing rules stay cool, not brass. */
+  --copper-50: #fafafa;
+  --copper-100: #e4e4e7;
+  --copper-300: #d4d4d8;
+  --copper-400: #f4f4f5;
+  --copper-500: #a1a1aa;
+  --copper-700: #3f3f46;
+  --copper-dim: rgba(255, 255, 255, 0.08);
+  --copper-line: rgba(255, 255, 255, 0.16);
+  --copper-glow: transparent;
 
   /* Status */
-  --ok: #8fceab;
+  --ok: #34d399;
   --ok-ink: #102218;
-  --ok-dim: rgba(143, 206, 171, 0.12);
-  --ok-line: rgba(143, 206, 171, 0.32);
-  --warn: #e4c27a;
-  --warn-ink: #2a210f;
-  --warn-dim: rgba(228, 194, 122, 0.12);
-  --warn-line: rgba(228, 194, 122, 0.34);
-  --alert: #e07a72;
-  --alert-soft: #f3d2ce;
-  --alert-ink: #2a1210;
-  --alert-dim: rgba(224, 122, 114, 0.13);
-  --alert-line: rgba(224, 122, 114, 0.36);
+  --ok-dim: rgba(52, 211, 153, 0.14);
+  --ok-line: rgba(52, 211, 153, 0.36);
+  --warn: #fbbf24;
+  --warn-ink: #1c1506;
+  --warn-dim: rgba(251, 191, 36, 0.14);
+  --warn-line: rgba(251, 191, 36, 0.36);
+  --alert: #ff5d52;
+  --alert-soft: #ffd0cb;
+  --alert-ink: #2a0d0b;
+  --alert-dim: rgba(255, 93, 82, 0.14);
+  --alert-line: rgba(255, 93, 82, 0.38);
   --info: #b7c4d6;
 
   /* Semantic aliases used across the board */
   --bg: var(--ink-0);
-  --sidebar: rgba(12, 12, 14, 0.78);
-  --surface: rgba(20, 20, 22, 0.72);
-  --surface-2: rgba(28, 28, 32, 0.66);
+  --sidebar: rgba(8, 9, 12, 0.58);
+  --surface: rgba(10, 12, 16, 0.62);
+  --surface-2: rgba(16, 18, 22, 0.72);
   --surface-3: var(--ink-4);
-  --line: rgba(244, 240, 232, 0.08);
+  --line: rgba(255, 255, 255, 0.1);
   --line-strong: var(--copper-line);
   --text: var(--paper);
   --muted: var(--paper-soft);
   --faint: var(--paper-faint);
   --brass: var(--copper-400);
   --brass-deep: var(--copper-500);
-  --brass-ink: #1c140c;
+  --brass-ink: #09090b;
   --brass-dim: var(--copper-dim);
   --crimson: var(--alert);
   --crimson-deep: #9a4038;
@@ -120,7 +120,7 @@ body {
 }
 
 ::selection {
-  background: rgba(217, 160, 102, 0.32);
+  background: rgba(255, 255, 255, 0.22);
   color: var(--paper);
 }
 
@@ -130,20 +130,8 @@ body {
   z-index: 0;
   pointer-events: none !important;
   background:
-    radial-gradient(920px 520px at 92% -8%, var(--copper-glow), transparent 58%),
-    radial-gradient(720px 480px at -8% 108%, rgba(120, 138, 162, 0.12), transparent 52%),
-    linear-gradient(180deg, #121214 0%, var(--ink-0) 46%, #0c0b0a 100%);
-}
-
-.station-backdrop::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(244, 240, 232, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(244, 240, 232, 0.035) 1px, transparent 1px);
-  background-size: 80px 80px;
-  mask-image: radial-gradient(ellipse at 50% 0%, black 0%, transparent 72%);
+    linear-gradient(180deg, rgba(7, 8, 10, 0.22) 0%, rgba(7, 8, 10, 0.48) 38%, rgba(7, 8, 10, 0.68) 100%),
+    url("/station-bg.jpg") center 28% / cover no-repeat;
 }
 
 .app-shell > *:not(.station-backdrop),
@@ -228,8 +216,8 @@ a {
   border-radius: 50%;
   object-fit: contain;
   padding: 2px;
-  background: #f7f4ee;
-  box-shadow: 0 0 0 1px rgba(217, 160, 102, 0.45);
+  background: #f4f4f5;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22);
   flex-shrink: 0;
   display: block;
 }
@@ -259,11 +247,10 @@ a {
 }
 
 .brand-name {
-  font-family: var(--font-display);
-  font-weight: 400;
-  letter-spacing: 0.18em;
-  font-size: 0.92rem;
-  text-transform: uppercase;
+  font-family: var(--font-sans);
+  font-weight: 650;
+  letter-spacing: -0.04em;
+  font-size: 0.98rem;
 }
 
 .brand-sub {
@@ -309,7 +296,7 @@ a {
 }
 
 .nav-link:hover {
-  background: rgba(244, 240, 232, 0.04);
+  background: rgba(255, 255, 255, 0.04);
   color: var(--paper);
 }
 
@@ -381,7 +368,7 @@ a {
   align-items: center;
   gap: 16px;
   padding: 12px 28px;
-  background: rgba(8, 8, 8, 0.72);
+  background: rgba(8, 9, 12, 0.5);
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(18px) saturate(1.15);
 }
@@ -437,7 +424,7 @@ a {
   padding: 6px 10px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--line);
-  background: rgba(244, 240, 232, 0.03);
+  background: rgba(255, 255, 255, 0.03);
   color: var(--paper-mute);
   font-size: 0.75rem;
   font-weight: 560;
@@ -498,7 +485,7 @@ a {
   padding: 22px 22px 20px;
   border-radius: var(--radius);
   border: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(244, 240, 232, 0.035), transparent 46%), var(--surface);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 46%), var(--surface);
   box-shadow: var(--shadow-soft);
   backdrop-filter: blur(16px);
 }
@@ -506,7 +493,7 @@ a {
 .link-banner h2 {
   margin: 6px 0 0;
   font-family: var(--font-display);
-  font-weight: 400;
+  font-weight: 600;
   font-size: 1.55rem;
   letter-spacing: -0.03em;
   line-height: var(--leading-tight);
@@ -628,7 +615,7 @@ a {
 .identity-name {
   margin: 0;
   font-family: var(--font-display);
-  font-weight: 400;
+  font-weight: 600;
   letter-spacing: -0.03em;
   line-height: var(--leading-tight);
 }
@@ -685,7 +672,7 @@ a {
 .empty-state,
 .person-card,
 .incident-card {
-  background: linear-gradient(180deg, rgba(244, 240, 232, 0.035), transparent 42%), var(--surface);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 42%), var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow-soft);
@@ -703,8 +690,8 @@ a {
 .incident-card:hover,
 .mini-row:hover,
 .attention-card:hover {
-  border-color: rgba(244, 240, 232, 0.16);
-  background: linear-gradient(180deg, rgba(244, 240, 232, 0.05), transparent 48%), var(--surface-2);
+  border-color: rgba(255, 255, 255, 0.16);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 48%), var(--surface-2);
 }
 
 .kpi-value,
@@ -805,7 +792,7 @@ a {
   padding: 14px 14px 13px;
   border-radius: 14px;
   border: 1px solid var(--line);
-  background: rgba(244, 240, 232, 0.025);
+  background: rgba(255, 255, 255, 0.025);
   transition: border-color 0.2s var(--ease), background 0.2s var(--ease);
 }
 
@@ -839,7 +826,7 @@ a {
   padding: 16px 18px;
   border-radius: 14px;
   border: 1px solid var(--line);
-  background: rgba(244, 240, 232, 0.03);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .callout.is-alert {
@@ -927,9 +914,9 @@ a {
 }
 
 .person-id {
-  font-family: var(--font-display);
-  font-size: 1.35rem;
-  font-weight: 400;
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+  font-weight: 500;
   letter-spacing: -0.03em;
 }
 
@@ -1047,7 +1034,7 @@ a {
   padding: 0 12px;
   border-radius: 12px;
   border: 1px solid transparent;
-  background: rgba(244, 240, 232, 0.04);
+  background: rgba(255, 255, 255, 0.04);
   color: var(--faint);
 }
 
@@ -1104,7 +1091,7 @@ a {
 
 .chip:hover {
   color: var(--paper);
-  border-color: rgba(244, 240, 232, 0.16);
+  border-color: rgba(255, 255, 255, 0.16);
 }
 
 .chip[aria-pressed="true"] {
@@ -1124,7 +1111,7 @@ a {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--paper-mute);
-  background: rgba(244, 240, 232, 0.03);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .badge.tone-live {
@@ -1135,7 +1122,7 @@ a {
 
 .badge.tone-wait {
   color: var(--paper-soft);
-  background: rgba(244, 240, 232, 0.04);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .badge.tone-alert {
@@ -1177,7 +1164,7 @@ a {
   padding: 0 14px;
   border-radius: 12px;
   border: 1px solid var(--line);
-  background: rgba(244, 240, 232, 0.04);
+  background: rgba(255, 255, 255, 0.04);
   color: var(--paper);
   font-weight: 560;
   font-size: 0.86rem;
@@ -1187,8 +1174,8 @@ a {
 }
 
 .btn:hover:not(:disabled) {
-  border-color: rgba(244, 240, 232, 0.2);
-  background: rgba(244, 240, 232, 0.07);
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.07);
 }
 
 .btn:active:not(:disabled) {
@@ -1207,7 +1194,7 @@ a {
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--copper-50);
+  background: #e4e4e7;
   border-color: transparent;
   filter: none;
 }
@@ -1250,7 +1237,7 @@ select:focus-visible {
   padding: 4px;
   margin: 8px 0 4px;
   border-radius: 14px;
-  background: rgba(244, 240, 232, 0.03);
+  background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--line);
   scrollbar-width: none;
 }
@@ -1307,14 +1294,14 @@ select:focus-visible {
 }
 
 .metric-hit:hover .metric {
-  border-color: rgba(244, 240, 232, 0.18);
+  border-color: rgba(255, 255, 255, 0.18);
 }
 
 .section-title {
   margin: 4px 0 0;
   font-family: var(--font-display);
   font-size: 1.35rem;
-  font-weight: 400;
+  font-weight: 600;
   letter-spacing: -0.03em;
 }
 
@@ -1334,7 +1321,7 @@ select:focus-visible {
 }
 
 .metric:hover {
-  border-color: rgba(244, 240, 232, 0.16);
+  border-color: rgba(255, 255, 255, 0.16);
 }
 
 .metric.tone-ok {
@@ -1534,7 +1521,7 @@ tbody tr td {
 }
 
 tbody tr:hover td {
-  background: rgba(244, 240, 232, 0.035);
+  background: rgba(255, 255, 255, 0.035);
 }
 
 td a {
@@ -1585,7 +1572,7 @@ td a {
   padding: 12px;
   border-radius: 14px;
   border: 1px solid var(--line);
-  background: rgba(244, 240, 232, 0.025);
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .route-index {
@@ -1603,7 +1590,7 @@ td a {
   margin: 0 0 8px;
   font-family: var(--font-display);
   font-size: 1.15rem;
-  font-weight: 400;
+  font-weight: 600;
   letter-spacing: -0.02em;
 }
 
@@ -1670,7 +1657,7 @@ code {
     height: 40px;
     border-radius: 12px;
     border: 1px solid var(--line);
-    background: rgba(244, 240, 232, 0.04);
+    background: rgba(255, 255, 255, 0.04);
     cursor: pointer;
   }
 
@@ -1859,7 +1846,7 @@ code {
 .modal-title {
   margin: 6px 0 0;
   font-family: var(--font-display);
-  font-weight: 400;
+  font-weight: 600;
   font-size: 1.7rem;
   letter-spacing: -0.03em;
 }
@@ -1939,7 +1926,7 @@ code {
   justify-content: space-between;
   gap: 16px;
   padding: 16px 32px;
-  background: rgba(8, 8, 8, 0.62);
+  background: rgba(8, 9, 12, 0.42);
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(18px);
 }
@@ -1971,21 +1958,19 @@ code {
 }
 
 .landing-hero {
-  padding: 42px 40px 36px;
-  background:
-    radial-gradient(480px 220px at 100% 0%, var(--copper-glow), transparent 60%),
-    linear-gradient(180deg, rgba(244, 240, 232, 0.04), transparent 40%),
-    var(--surface);
+  padding: 32px 32px 28px;
+  background: rgba(9, 10, 14, 0.46);
+  backdrop-filter: blur(18px);
 }
 
 .landing-hero h1 {
-  margin: 12px 0 0;
-  font-family: var(--font-display);
-  font-weight: 400;
-  font-size: clamp(2.4rem, 5vw, 4rem);
-  letter-spacing: -0.04em;
-  line-height: 0.98;
-  max-width: 14ch;
+  margin: 10px 0 0;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: clamp(2rem, 4vw, 2.75rem);
+  letter-spacing: -0.045em;
+  line-height: 1.05;
+  max-width: 16ch;
 }
 
 .landing-lead {
