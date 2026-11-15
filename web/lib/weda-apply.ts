@@ -39,6 +39,21 @@ export function recentRest(points: readonly WedaPoint[]): boolean {
   return avg > 0.85 && avg < 1.2 && spread < 0.12 && turn < 15;
 }
 
+/** A wide swing. The run recordings barely move the gyro, so a live MPU-6050 needs this check. */
+export function recentVigorous(points: readonly WedaPoint[]): boolean {
+  const recent: WedaPoint[] = [];
+  for (const point of points) {
+    if (recent.length >= 8) break;
+    if (recent.length > 0 && recent[recent.length - 1].at - point.at > 2500) break;
+    recent.push(point);
+  }
+  if (recent.length === 0) return false;
+  const accel = recent.map((point) => Math.hypot(point.sample.ax, point.sample.ay, point.sample.az));
+  const gyro = recent.map((point) => Math.hypot(point.sample.gx, point.sample.gy, point.sample.gz));
+  const spread = Math.max(...accel) - Math.min(...accel);
+  return Math.max(...gyro) >= 80 || spread >= 1.4;
+}
+
 function takeWindow(points: readonly WedaPoint[]): WristSample[] | null {
   const window: WedaPoint[] = [];
   for (const point of points) {
@@ -74,8 +89,11 @@ export function applyWedaView(view: WedaView): WedaView {
     };
   }
   if (armedAt != null && (held || view.now - armedAt > WEDA_GRACE_MS)) armedAt = null;
-  if (!held && recentRest(view.newestFirst)) {
-    return { ...view, model: "weda-fall", activityLabel: "idle", activityScore: 0.95, armedAt: null };
+  if (recentVigorous(view.newestFirst)) {
+    return { ...view, activityLabel: "run", activityScore: 0.9, armedAt };
+  }
+  if (recentRest(view.newestFirst)) {
+    return { ...view, model: held ? view.model : "weda-fall", activityLabel: "idle", activityScore: 0.95, armedAt: held ? armedAt : null };
   }
   if (held || score == null) return { ...view, armedAt };
   const activityLabel = motion?.label && motion.label !== "clear" ? motion.label : "clear";

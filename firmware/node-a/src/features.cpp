@@ -291,6 +291,30 @@ static bool recentRest() {
   return avg > 0.85f && avg < 1.20f && (amax - amin) < 0.12f && (turn / static_cast<float>(n)) < 15.0f;
 }
 
+static bool recentVigorous() {
+  if (g_wedaFill < 4) return false;
+  const int n = g_wedaFill < 10 ? g_wedaFill : 10;
+  float amin = 1.0e9f;
+  float amax = -1.0e9f;
+  float gmax = 0.0f;
+  for (int i = 0; i < n; ++i) {
+    const int index = (g_wedaNext - 1 - i + WEDA_WINDOW) % WEDA_WINDOW;
+    const float accel = g_wedaAccel[index];
+    const float gyro = g_wedaGyro[index];
+    if (accel < amin) amin = accel;
+    if (accel > amax) amax = accel;
+    if (gyro > gmax) gmax = gyro;
+  }
+  // Run clips in the public set barely turn. A wide live swing shows up here.
+  return gmax >= 80.0f || (amax - amin) >= 1.4f;
+}
+
+static void markRun() {
+  strncpy(g_activity, "run", sizeof(g_activity) - 1);
+  g_activity[sizeof(g_activity) - 1] = '\0';
+  g_activityScore = 0.90f;
+}
+
 static void markIdle() {
   strncpy(g_activity, "idle", sizeof(g_activity) - 1);
   g_activity[sizeof(g_activity) - 1] = '\0';
@@ -306,7 +330,14 @@ static void noteWeda(const WearableReadings &in) {
   g_wedaGyro[g_wedaNext] = gyro;
   g_wedaNext = (g_wedaNext + 1) % WEDA_WINDOW;
   if (g_wedaFill < WEDA_WINDOW) g_wedaFill++;
-  if (recentRest()) {
+  if (recentVigorous()) {
+    markRun();
+    if (g_wedaFill < WEDA_WINDOW) {
+      g_wedaScore = -1.0f;
+      g_wedaHot = false;
+      return;
+    }
+  } else if (recentRest()) {
     markIdle();
     if (g_wedaFill < WEDA_WINDOW) {
       g_wedaScore = -1.0f;
@@ -327,13 +358,15 @@ static void noteWeda(const WearableReadings &in) {
   }
   g_wedaScore = wedaFallScore(orderedA, orderedG, WEDA_WINDOW);
   activityPredict(orderedA, orderedG, WEDA_WINDOW, g_activity, sizeof(g_activity), &g_activityScore);
-  if (recentRest()) markIdle();
+  if (recentVigorous()) markRun();
+  else if (recentRest()) markIdle();
   const bool hot = !recentRest() && g_wedaScore >= WEDA_THRESHOLD;
   if (hot && !g_wedaHot) FASerial.printf("[node-a] weda-fall score=%.2f\n", g_wedaScore);
   g_wedaHot = hot;
 }
 
 const char *featuresMotionLabel() {
+  if (strcmp(g_activity, "run") == 0 && recentVigorous()) return "run";
   if (g_wedaHot) return "fall";
   if (g_wedaFill < WEDA_WINDOW && g_activity[0] == '\0') return "";
   return g_activity[0] ? g_activity : "clear";

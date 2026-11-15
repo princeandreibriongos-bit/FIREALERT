@@ -268,6 +268,30 @@ describe("weda fall score", () => {
     assert.equal(view.activityLabel, "idle");
     assert.equal(view.fallState, "idle");
   });
+
+  it("labels a wide swing as run while a fall review is open", () => {
+    const swing: WristSample = { ax: 1.6, ay: 1.2, az: 0.4, gx: 180, gy: 90, gz: 40 };
+    const points: WedaPoint[] = [];
+    let clock = Date.parse("2026-11-15T05:52:00.000Z");
+    for (let i = 0; i < 5; i++) {
+      points.unshift({ at: clock, sample: i === 0 ? still : swing });
+      clock += 400;
+    }
+    const view = applyWedaView({
+      simulated: false,
+      fallState: "distress",
+      model: "weda-fall",
+      graceRemainingMs: 0,
+      activityLabel: "idle",
+      activityScore: 0.95,
+      capture: null,
+      armedAt: null,
+      now: clock,
+      newestFirst: points,
+    });
+    assert.equal(view.activityLabel, "run");
+    assert.equal(view.fallState, "distress");
+  });
 });
 
 describe("wrist locomotion", () => {
