@@ -472,13 +472,13 @@ static void tickFall(WearableReadings &out) {
   out.fall_state = static_cast<uint8_t>(g_fall);
 }
 
+static void sharedBusOn();
+
 static bool scdAddressAck() {
   sharedBusOn();
   Wire.beginTransmission(SCD40_I2C_ADDR);
   return Wire.endTransmission() == 0;
 }
-
-static void sharedBusOn();
 
 static bool beginScd40() {
   if (!SCD40_ENABLED) {
