@@ -9,3 +9,4 @@ node_modules/
 data/live-board.json
 data/network.json
 datasets/weda-fall/.upstream/
+**/__pycache__/

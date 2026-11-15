@@ -5,6 +5,8 @@ import { appendSharedItem, boardBackend, noteItems, readRedisBoard, readSharedBo
 import { normalizeTelemetry, type NormalizedTelemetry, type RawTelemetry } from "./telemetry-core";
 import { persistTelemetryPacket } from "./telemetry-persist";
 import { signatureStatus } from "./verify";
+import { applyWedaView, type WedaPoint } from "./weda-apply";
+import { WEDA_WINDOW, type WristSample } from "./weda-fall";
 
 const MAX_LOGS = 250;
 
@@ -17,9 +19,58 @@ function logs(): NormalizedTelemetry[] {
   return globalStore.__firealertLogs;
 }
 
+function wedaLatches(): Map<string, number> {
+  const store = globalStore as typeof globalStore & { __firealertWeda?: Map<string, number> };
+  if (!store.__firealertWeda) store.__firealertWeda = new Map();
+  return store.__firealertWeda;
+}
+
+function wristOf(entry: NormalizedTelemetry): WristSample | null {
+  const accel = entry.mpu6050.accel_g;
+  const gyro = entry.mpu6050.gyro_dps;
+  if (!entry.mpu6050.installed || !accel || !gyro) return null;
+  if (accel.x == null || accel.y == null || accel.z == null || gyro.x == null || gyro.y == null || gyro.z == null) return null;
+  return { ax: accel.x, ay: accel.y, az: accel.z, gx: gyro.x, gy: gyro.y, gz: gyro.z };
+}
+
+/** Score the last 3 seconds of this wearer's wrist samples and hold grace for 10 seconds. */
+function applyWeda(entry: NormalizedTelemetry): void {
+  const latches = wedaLatches();
+  const newest: WedaPoint[] = [];
+  const own = wristOf(entry);
+  const start = Date.parse(entry.received_at);
+  if (own && Number.isFinite(start)) newest.push({ at: start, sample: own });
+  for (const row of logs()) {
+    if (newest.length >= WEDA_WINDOW) break;
+    if (row.wearer_id !== entry.wearer_id || row.simulated) continue;
+    const at = Date.parse(row.received_at);
+    if (!Number.isFinite(at)) continue;
+    const sample = wristOf(row);
+    if (!sample) continue;
+    newest.push({ at, sample });
+  }
+  const next = applyWedaView({
+    simulated: entry.simulated,
+    fallState: entry.fall.state,
+    model: entry.fall.model,
+    graceRemainingMs: entry.fall.grace_remaining_ms,
+    activityLabel: entry.activity.label,
+    activityScore: entry.activity.score,
+    capture: entry.activity.capture,
+    armedAt: latches.get(entry.wearer_id) ?? null,
+    now: Number.isFinite(start) ? start : Date.now(),
+    newestFirst: newest,
+  });
+  if (next.armedAt == null) latches.delete(entry.wearer_id);
+  else latches.set(entry.wearer_id, next.armedAt);
+  entry.fall = { state: next.fallState, model: next.model, grace_remaining_ms: next.graceRemainingMs };
+  entry.activity = { label: next.activityLabel, score: next.activityScore, capture: next.capture };
+}
+
 export function logTelemetry(raw: RawTelemetry | unknown, receivedAt = new Date().toISOString()): NormalizedTelemetry | null {
   const entry = normalizeTelemetry(raw, receivedAt, signatureStatus);
   if (!entry) return null;
+  applyWeda(entry);
   const items = logs();
   items.unshift(entry);
   if (items.length > MAX_LOGS) items.length = MAX_LOGS;

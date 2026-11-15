@@ -26,6 +26,10 @@ timestamp,accX,accY,accZ,gyrX,gyrY,gyrZ
 - Not a firefighter fall, and not a fall by the older volunteers.
 - Not a recording from the boards on the desk. Those still use `rec fall`, `rec idle`, and `rec walk` on the wearable serial port.
 
+## Live score
+
+`python3 datasets/weda-fall/train_weda.py` fits the magnitude score and writes `model.json`, `firmware/node-a/include/weda_fall.h`, and `web/lib/weda-fall.ts`. The dashboard and the wearable both use those weights. Held-out volunteers are those whose user number is divisible by 5. At threshold 0.72 that split caught 80% of fall trials and also fired on 22% of daily-activity trials.
+
 ## Refresh
 
 From the repository root:

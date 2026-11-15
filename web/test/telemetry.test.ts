@@ -13,6 +13,8 @@ import {
   normalizeTelemetry,
   type NormalizedTelemetry,
 } from "../lib/telemetry-core.ts";
+import { applyWedaView, WEDA_GRACE_MS, type WedaPoint } from "../lib/weda-apply.ts";
+import { WEDA_THRESHOLD, wedaFallScore, type WristSample } from "../lib/weda-fall.ts";
 import { signatureStatus } from "../lib/verify.ts";
 
 const at = "2026-10-24T02:00:00.000Z";
@@ -175,6 +177,71 @@ describe("signatures", () => {
     assert.equal(signatureStatus(prefix, signature, null), "unverified");
     assert.equal(signatureStatus(prefix, signature, pem), "valid");
     assert.equal(signatureStatus("ff112233", signature, pem), "invalid");
+  });
+});
+
+describe("weda fall score", () => {
+  const still: WristSample = { ax: 0, ay: 0, az: 1, gx: 2, gy: 1, gz: 1 };
+  const impact: WristSample = { ax: 2.4, ay: 3.1, az: 4, gx: 700, gy: 500, gz: 400 };
+  const dip: WristSample = { ax: 0.05, ay: 0.05, az: 0.1, gx: 80, gy: 40, gz: 40 };
+
+  function windowFrom(sampleAt: (index: number) => WristSample): WristSample[] {
+    return Array.from({ length: 30 }, (_, index) => sampleAt(index));
+  }
+
+  it("keeps a quiet wrist under the threshold and a dip-then-impact over it", () => {
+    const quiet = wedaFallScore(windowFrom(() => still));
+    const hit = wedaFallScore(
+      windowFrom((index) => (index >= 6 && index <= 9 ? dip : index >= 10 && index <= 18 ? impact : still)),
+    );
+    assert.ok(quiet != null && hit != null);
+    assert.ok(quiet < WEDA_THRESHOLD);
+    assert.ok(hit >= WEDA_THRESHOLD);
+    assert.ok(hit > quiet);
+  });
+
+  it("latches a 10 second grace and leaves a device distress state alone", () => {
+    const points: WedaPoint[] = [];
+    let clock = Date.parse("2026-11-15T03:00:00.000Z");
+    let armedAt: number | null = null;
+    const post = (sample: WristSample, fallState: "idle" | "cancelled" | "distress") => {
+      points.unshift({ at: clock, sample });
+      const view = applyWedaView({
+        simulated: false,
+        fallState,
+        model: "none",
+        graceRemainingMs: 0,
+        activityLabel: "waiting",
+        activityScore: null,
+        capture: null,
+        armedAt,
+        now: clock,
+        newestFirst: points,
+      });
+      armedAt = view.armedAt;
+      clock += 100;
+      return view;
+    };
+    post(still, "cancelled");
+    let quiet = post(still, "idle");
+    for (let i = 0; i < 29; i++) quiet = post(still, "idle");
+    assert.equal(quiet.fallState, "idle");
+    assert.equal(quiet.activityLabel, "clear");
+    assert.ok((quiet.activityScore ?? 1) < WEDA_THRESHOLD);
+
+    let hit = post(still, "idle");
+    for (let i = 0; i < 29; i++) {
+      const sample = i >= 5 && i <= 8 ? dip : i >= 9 && i <= 17 ? impact : still;
+      hit = post(sample, "idle");
+    }
+    assert.equal(hit.fallState, "grace");
+    assert.equal(hit.model, "weda-fall");
+    assert.equal(hit.activityLabel, "fall");
+    assert.ok(hit.graceRemainingMs > WEDA_GRACE_MS - 1000);
+
+    const distress = post(still, "distress");
+    assert.equal(distress.fallState, "distress");
+    assert.equal(distress.model, "none");
   });
 });
 

@@ -93,7 +93,7 @@ static constexpr uint32_t FALL_GRACE_MS = 10000;
 
 // Shoulder idle/walk model removed. Wrist recordings use the serial "rec" command.
 // Fall grace still uses the impact heuristic. No classifier is linked.
-static constexpr const char *FALL_MODEL_ID = "none";
+static constexpr const char *FALL_MODEL_ID = "weda-fall";
 
 // --- ECDSA -----------------------------------------------------------------
 // Off until a private key is provisioned on the device. Do not commit a key.

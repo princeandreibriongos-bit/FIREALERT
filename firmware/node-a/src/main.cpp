@@ -198,9 +198,10 @@ static void fillPacket(TelemetryPacket &packet, const WearableReadings &in) {
   packet.battery_percent = in.battery ? in.battery_percent : BATTERY_PERCENT_ABSENT;
   packet.grace_remaining_ms = in.grace_remaining_ms;
   packet.alert_outputs = in.alert_outputs;
-  strncpy(packet.activity_label, eiActivityLabel(), sizeof(packet.activity_label) - 1);
+  const char *motion = featuresMotionLabel();
+  strncpy(packet.activity_label, motion[0] ? motion : eiActivityLabel(), sizeof(packet.activity_label) - 1);
   strncpy(packet.capture_label, featuresCaptureLabel(), sizeof(packet.capture_label) - 1);
-  float score = eiActivityScore();
+  float score = motion[0] ? featuresMotionScore() : eiActivityScore();
   if (score < 0.0f) score = 0.0f;
   if (score > 1.0f) score = 1.0f;
   packet.activity_score = static_cast<uint8_t>(score * 100.0f + 0.5f);
@@ -255,7 +256,7 @@ void loop() {
     if (readings.mpu6050) {
       FASerial.printf("[node-a] MPU-6050 g=%.2f %.2f %.2f dps=%.1f %.1f %.1f fall=%u act=%s(%.2f)\n",
                     readings.accel_x, readings.accel_y, readings.accel_z, readings.gyro_x, readings.gyro_y,
-                    readings.gyro_z, readings.fall_state, eiActivityLabel(), eiActivityScore());
+                    readings.gyro_z, readings.fall_state, featuresMotionLabel(), featuresMotionScore());
     } else {
       FASerial.println("[node-a] MPU-6050 no reading");
     }

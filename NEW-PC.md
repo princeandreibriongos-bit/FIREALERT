@@ -225,7 +225,7 @@ Do not turn these flags on until the part is wired and a driver is linked. They 
 - Cellular modem on the gateway
 - BME688 gas heater. Leave it off unless you accept a slower loop. With it off, gas resistance is 0 on purpose
 
-No motion classifier is linked. The shoulder idle/walk model was removed when the MPU-6050 moved to the wrist. Serial command `fall` starts the 10-second cancel window. GPIO 4, active low, cancels it. `rec idle`, `rec walk`, and `rec fall` mark a 45-second wrist recording.
+The wrist fall score is WEDA-FALL magnitudes (`weda-fall` in the packet). It needs the last 3 seconds of motion samples. Serial command `fall` starts the 10-second cancel window. GPIO 4, active low, cancels it. `rec idle`, `rec walk`, and `rec fall` mark a 45-second wrist recording. Flash node A and node B together after pulling this tree so the wearable opens grace itself. The dashboard also scores the packets the current firmware already sends.
 
 MQ-6 is in the firmware (`MQ6_ENABLED`). The count in the log is the ADC reading after the divider.
 

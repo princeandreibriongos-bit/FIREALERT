@@ -22,7 +22,7 @@ On a new computer, read **[NEW-PC.md](NEW-PC.md)** before installing or flashing
   - MAX30102 on GPIO 8/9: estimated heart rate and SpO₂ while a finger covers the glass. Not a clinical reading. See [Reading limits](#reading-limits).
   - MPU-6050 on GPIO 8/9, **VCC on 3.3 V**: acceleration and gyro. Powering this module from 5 V pulls SDA/SCL above 3.3 V and locks the pulse sensor.
   - MQ-6: heater on the devkit 5 V pin, analog output on GPIO 1 through a resistor divider. The log shows a raw ADC count, not %LEL.
-  - MPU-6050 is worn on the wrist. The shoulder idle/walk model has been removed, so the motion class stays Waiting until a wrist model is trained. Fall grace still uses the impact heuristic.
+  - MPU-6050 is worn on the wrist. Fall grace opens from the WEDA-FALL magnitude score (3 seconds, threshold 0.72) or from the impact heuristic.
 - **Node B (gateway):** Receives ESP-NOW, prints JSON on USB, and can POST a link heartbeat to the hosted board. Live wearer packets reach the dashboard through the USB bridge, not through a direct ESP32 POST to the laptop.
 - **Web board:** `http://localhost:3000` from `web/`. Use `npm start` after `npm run build` for a test or demo. Use `npm run dev` only while editing the site. **Load sample crew** fills FF-01 and FF-02 with simulated packets so the layout can be reviewed without hardware.
 
@@ -72,7 +72,11 @@ Summary for Node A: SCD40, MAX30102 (`0x57`, INT open), and MPU-6050 share **GPI
 
 ## Motion model
 
-The previous classifier was trained while the MPU-6050 was on the shoulder. That deploy (`mpu5060` idle/walk) and the shoulder CSV takes under `datasets/mpu/` are removed. The same chip is now worn on the wrist, on the same wires (GPIO 8 SDA, GPIO 9 SCL, VCC on 3.3 V). Wrist motion is not the same pattern, so the dashboard motion class stays **Waiting**. Fall grace is still the freefall-then-impact check. Type `fall` on the wearable serial port to open it by hand.
+The shoulder idle/walk model is gone. The live score is a magnitude logistic regression trained on the converted [WEDA-FALL](datasets/weda-fall/README.md) 10 Hz wrist windows (30 samples, about 3 seconds). The same weights sit in `web/lib/weda-fall.ts` and `firmware/node-a/include/weda_fall.h`. Features are accel min, max, spread, gyro max, the share of samples under 0.6 g and over 2.2 g, whether a dip comes before an impact, and the accel swing. Axes are not used, because the Fitbit and this MPU-6050 are not mounted the same way.
+
+On held-out volunteers (user number divisible by 5) a threshold of 0.72 caught 80% of fall trials and also fired on 22% of daily-activity trials. Those falls were acted onto a mattress by younger volunteers. This is a review cue, not a medical alarm. The freefall-then-impact check still opens grace on its own. Type `fall` on the wearable serial port to open it by hand.
+
+The dashboard scores packets that are already arriving, so the wearer page updates before a new flash. The wearable itself opens grace only after both boards are flashed with this firmware. Motion class stays **Waiting** until 30 fresh samples land inside 4 seconds (about a 10 Hz stream). A score under the threshold is labeled **Clear**. A score at or above it is labeled **Fall** and the board holds **grace** for 10 seconds. `cancelled` from the wearable clears that hold. A device state of grace, distress, or possible is left as the wearable sent it.
 
 Record new takes with the sensor on the wrist. Open the wearable serial port at 115200 and type one line:
 
@@ -100,7 +104,7 @@ These show up in the packet log and are properties of this firmware, not a broke
 - **SpO₂** is `110 - 25 × (red/IR ratio)`. Values outside 70–100 are blank. 71 and 81 are that formula, not a medical oxygen reading.
 - **Red and infrared** are blank when the stored packet has no raw counts. Flash both nodes from this repo so the gateway forwards those fields.
 - **Duplicate rows** with the same sequence are the same packet stored twice. Sequence gaps are packets that did not make it through the radio or the bridge.
-- **Fall** stays `idle` unless the impact heuristic (or the serial command `fall`) opens the grace window. Gyro noise alone does not raise it.
+- **Fall** opens grace from the WEDA-FALL score, the impact heuristic, or the serial command `fall`. A quiet wrist stays `idle` with motion class Clear once the 3-second window is full.
 - **GPS** is `—` because no receiver is fitted. **Signature** is `unsigned` because signing is off.
 
 ## Work landed on 15 Nov 2026 (PHT)
@@ -112,7 +116,7 @@ These commits were made on this tree and were not on GitHub until this push. Old
 - Heart rate is counted from infrared peaks, averaged over a short window.
 - The USB bridge starts with the local board and posts on background threads so a slow hosted request cannot stall the serial read.
 - Overview, sensors, wearer, and the packet log show pulse and raw light when the packet carries them.
-- The shoulder idle/walk model was removed after the MPU-6050 moved to the wrist. Motion class stays Waiting until a new model is trained from wrist recordings.
+- The shoulder idle/walk model was removed after the MPU-6050 moved to the wrist. The live fall score is the WEDA-FALL magnitude model.
 - The board cache, the telemetry write, and the page refresh were shortened so the log moves in about a second instead of minutes.
 
 ## Web app

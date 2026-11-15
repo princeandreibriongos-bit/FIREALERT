@@ -14,6 +14,7 @@
 #include "config.h"
 #include "dual_serial.h"
 #include "ei_activity.h"
+#include "weda_fall.h"
 #include "wifi_store.h"
 
 static SensirionI2cScd4x g_scd4x;
@@ -172,6 +173,12 @@ static bool pollFallCommand() {
 
 static char g_capture[8] = "";
 static uint32_t g_captureUntilMs = 0;
+static float g_wedaAccel[WEDA_WINDOW] = {};
+static float g_wedaGyro[WEDA_WINDOW] = {};
+static int g_wedaFill = 0;
+static int g_wedaNext = 0;
+static float g_wedaScore = -1.0f;
+static bool g_wedaHot = false;
 
 static bool captureLabelOk(const char *label) {
   return strcasecmp(label, "idle") == 0 || strcasecmp(label, "walk") == 0 || strcasecmp(label, "fall") == 0 ||
@@ -213,7 +220,42 @@ const char *featuresCaptureLabel() {
   return g_capture;
 }
 
-// Fall grace is a freefall→impact cue. No motion classifier is linked.
+static void noteWeda(const WearableReadings &in) {
+  if (!in.mpu_fresh) return;
+  const float accel = sqrtf(in.accel_x * in.accel_x + in.accel_y * in.accel_y + in.accel_z * in.accel_z);
+  const float gyro = sqrtf(in.gyro_x * in.gyro_x + in.gyro_y * in.gyro_y + in.gyro_z * in.gyro_z);
+  g_wedaAccel[g_wedaNext] = accel;
+  g_wedaGyro[g_wedaNext] = gyro;
+  g_wedaNext = (g_wedaNext + 1) % WEDA_WINDOW;
+  if (g_wedaFill < WEDA_WINDOW) g_wedaFill++;
+  if (g_wedaFill < WEDA_WINDOW) {
+    g_wedaScore = -1.0f;
+    g_wedaHot = false;
+    return;
+  }
+  float orderedA[WEDA_WINDOW];
+  float orderedG[WEDA_WINDOW];
+  for (int i = 0; i < WEDA_WINDOW; ++i) {
+    const int index = (g_wedaNext + i) % WEDA_WINDOW;
+    orderedA[i] = g_wedaAccel[index];
+    orderedG[i] = g_wedaGyro[index];
+  }
+  g_wedaScore = wedaFallScore(orderedA, orderedG, WEDA_WINDOW);
+  const bool hot = g_wedaScore >= WEDA_THRESHOLD;
+  if (hot && !g_wedaHot) FASerial.printf("[node-a] weda-fall score=%.2f\n", g_wedaScore);
+  g_wedaHot = hot;
+}
+
+const char *featuresMotionLabel() {
+  if (g_wedaFill < WEDA_WINDOW) return "";
+  return g_wedaHot ? "fall" : "clear";
+}
+
+float featuresMotionScore() {
+  return g_wedaFill < WEDA_WINDOW ? 0.0f : g_wedaScore;
+}
+
+// Freefall→impact still opens grace. The wrist score can open it too.
 static bool predictFall(const WearableReadings &in) {
   if (!in.mpu6050) return false;
   const float ax = in.accel_x;
@@ -287,7 +329,7 @@ static void tickFall(WearableReadings &out) {
     }
   }
 
-  const bool trigger = !justCancelled && g_fall == FALL_IDLE && (command || predictFall(out));
+  const bool trigger = !justCancelled && g_fall == FALL_IDLE && (command || predictFall(out) || g_wedaHot);
   if (trigger) {
     g_fall = FALL_GRACE;
     g_graceStartMs = now;
@@ -1229,6 +1271,7 @@ void featuresBegin() {
                 BME688_ENABLED, MAX30102_ENABLED, MPU6050_ENABLED, GPS_ENABLED, BATTERY_SENSE_ENABLED,
                 TOUCHSCREEN_INSTALLED, BUZZER_INSTALLED, ECDSA_SIGNING_ENABLED, FALL_MODEL_ID);
   FASerial.println("[node-a] serial commands: fall | rec idle | rec walk | rec fall | rec off");
+  FASerial.println("[node-a] wrist fall score is WEDA-FALL magnitudes");
 }
 
 static void retryMissingSensors() {
@@ -1345,6 +1388,7 @@ void featuresRead(WearableReadings &out) {
   readMpu6050(out);
   readMq6(out);
   eiActivityPushSample(out);
+  noteWeda(out);
   tickFall(out);
 }
 

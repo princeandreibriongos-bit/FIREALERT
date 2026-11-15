@@ -30,4 +30,4 @@ static constexpr uint32_t HTTP_TIMEOUT_MS = 8000;
 // not describe hardware that is not on the board.
 static constexpr bool BUZZER_INSTALLED = false;
 static constexpr bool TOUCHSCREEN_INSTALLED = false;
-static constexpr const char *FALL_MODEL_ID = "none";
+static constexpr const char *FALL_MODEL_ID = "weda-fall";

@@ -350,7 +350,7 @@ export function WearerDetail({ wearerId }: { wearerId: string }) {
               <div className={`callout ${reviewing ? "is-alert" : "is-ok"}`} style={{ flex: 1 }}>
                 <p>{fallCopy(packet)}</p>
                 <p className="fine">
-                  Model: {packet.fall.model}. The MPU-6050 is on the wrist and no classifier is loaded, so the motion class stays Waiting. Fall is still the impact cue.
+                  Model: {packet.fall.model}. Wrist magnitudes from WEDA-FALL, scored on the last 3 seconds. At or above 72% the board holds a 10-second review. The impact cue can open that window too.
                   {packet.activity?.capture ? ` Recording ${packet.activity.capture}.` : ""}
                 </p>
               </div>
