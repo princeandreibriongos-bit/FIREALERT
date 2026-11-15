@@ -239,7 +239,7 @@ Reserved in `config.h`; firmware does **not** initialize these yet.
 | MOSI | **14** |
 | SCK | **21** |
 
-Enable UI flags when fitted: `TOUCHSCREEN_INSTALLED`, and buzzer as needed.
+The buzzer is already enabled on GPIO 5. Enable `TOUCHSCREEN_INSTALLED` only after a display is wired.
 
 ---
 
@@ -250,7 +250,7 @@ Enable UI flags when fitted: `TOUCHSCREEN_INSTALLED`, and buzzer as needed.
 | **ESP-NOW** | Telemetry to Node B (`NODE_B_MAC` in `config.h`) |
 | **Wi-Fi STA** | Optional: join saved router to **learn RF channel** for ESP-NOW; not used to POST telemetry from the wearable |
 
-Motion packets: about every **100 ms** (`MOTION_INTERVAL_MS`). Slow air sensors are polled about every **5 s** and do not block those packets. Edge Impulse runs at most every **3 s**, after the packet is queued.
+Motion packets: about every **100 ms** (`MOTION_INTERVAL_MS`). Slow air sensors are polled about every **5 s** and do not block those packets. The wrist fall score is the WEDA-FALL magnitude model, not an Edge Impulse library. Health and gas alarms are decided on the wearable and sent in flag bits, so the packet stays 187 bytes.
 
 ---
 

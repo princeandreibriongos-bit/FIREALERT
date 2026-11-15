@@ -209,7 +209,7 @@ Full pin map: [firmware/PINOUT.md](firmware/PINOUT.md). All logic-level signals 
 | SCD40 | GPIO 8 SDA, GPIO 9 SCL | `0x62` | Real CO₂, plus the sensor's own temperature and humidity |
 | MAX30102 | GPIO 8 SDA, GPIO 9 SCL | `0x57` | Estimated heart rate and SpO₂ while a finger covers the glass. INT left open. VIN is 3.3 V. A dim LED means the chip was not initialized or the bus is latched; unplug USB, then reset |
 | MPU-6050 | GPIO 8 SDA, GPIO 9 SCL | `0x68` with AD0 to GND | Accel and gyro. **VCC must be 3.3 V.** A 5 V VCC lets the module pull-ups drive SDA/SCL above 3.3 V and the MAX30102 stops answering |
-| BME688 | GPIO 17 SDA, GPIO 18 SCL | `0x77` when SDO is tied to 3.3 V. `0x76` when SDO is tied to GND | Device-air temperature, humidity, pressure. Gas resistance reads 0 because the heater is off |
+| BME688 | GPIO 17 SDA, GPIO 18 SCL | `0x77` when SDO is tied to 3.3 V. `0x76` when SDO is tied to GND | Device-air temperature, humidity, pressure, and gas resistance. Heater is on at 320 °C for 150 ms and does not block the motion loop. That resistance is not the MQ-6 alarm |
 | MQ-6 | Analog GPIO 1 | none | Heater VCC to the devkit **5 V** pin. AO through two 10 kΩ resistors to GPIO 1 (divider to GND). DO left open. Raw ADC count, not %LEL. Heater needs about 10–15 minutes after each power-up |
 
 The BME688 is not on the SCD40 pins. The MAX30102 and the MPU-6050 are. They share GPIO 8 and GPIO 9 with the SCD40. The BME688 stays on its own pair because each ESP32 pin only has one female dupont for a separate bus. The BME688 driver is the Adafruit BME680 library on `TwoWire(1)`. The bus is chosen in the constructor (`Adafruit_BME680(&g_bme688Wire)`). `begin()` takes the address only. Passing the bus as the second argument does not select the bus. Gas resistance is not a carbon monoxide or LPG alarm. CO₂ comes from the SCD40 only. BME temperature is air at the board, not body temperature.
@@ -220,14 +220,15 @@ Type `scan` on the wearable serial port to print which addresses answer on each 
 
 Do not turn these flags on until the part is wired and a driver is linked. They are listed in `firmware/node-a/include/config.h` and in the README placeholder table.
 
-- GPS, battery divider, buzzer, and touchscreen
+- GPS, battery divider, and touchscreen
 - ECDSA packet signing (`ECDSA_SIGNING_ENABLED` is false, so the log says `unsigned`)
 - Cellular modem on the gateway
-- BME688 gas heater. Leave it off unless you accept a slower loop. With it off, gas resistance is 0 on purpose
+
+The buzzer is ready on GPIO 5 (`BUZZER_INSTALLED`). GPIO 4 cancels a fall and silences a health or gas alarm. GPIO 40 raises an alarm. Serial `alarm` and `ack` stand in for those buttons. The BME688 heater is already on. MQ-6 alarms when its raw count stays at or above 1800 for about 5 seconds.
 
 The MPU-6050 is worn on the left wrist. The fall score is WEDA-FALL magnitudes (`weda-fall` in the packet). The motion class is idle, walk, or run from acceleration magnitude. Both need the last 3 seconds of motion samples. Serial command `fall` starts the 10-second cancel window. GPIO 4, active low, cancels it. `rec idle`, `rec walk`, and `rec fall` mark a 45-second wrist recording. Flash node A and node B together after pulling this tree so the wearable opens grace and prints the class itself. The dashboard also scores the packets the current firmware already sends.
 
-MQ-6 is in the firmware (`MQ6_ENABLED`). The count in the log is the ADC reading after the divider.
+MQ-6 is in the firmware (`MQ6_ENABLED`). The count in the log is the ADC reading after the divider. An alarm is a count at or above 1800 for about 5 seconds, cleared below 1500. It is not a percent of the explosive limit.
 
 ## Rules for the next session
 

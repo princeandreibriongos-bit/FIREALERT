@@ -2,16 +2,21 @@
 
 Prototype wearable and incident board for the New Makati Central Fire Station capstone. It supplements radio and dispatch. It is not protective equipment, and it does not make tactical or medical decisions.
 
-The wearable and gateway firmware are in `firmware/`. The monitoring board is in `capstone/`.
+The wearable and gateway firmware are in `firmware/`. The monitoring board is in `web/`.
 
 On a new computer, read **[NEW-PC.md](NEW-PC.md)** before installing or flashing. It has the install list, the USB bridge, and the two saved Wi-Fi networks. The pin map is **[firmware/PINOUT.md](firmware/PINOUT.md)**.
 
 ## Updates
 
-- **Monitoring board.** Crew list, physiology, environment, motion and fall, location, signature status, incidents, and advisory driving routes. Sensors that are not installed stay marked awaiting hardware.
-- **Fall grace period.** A 10-second cancel window is in the firmware. The Edge Impulse model slot is empty, so motion alone does not raise a cue. Type `fall` on the wearable serial port to start the window. GPIO 4 (pull-up, active low) cancels it.
-- **Health alarms.** A high pulse is alarmed only when it stays high while the wearer is not running. A low pulse, low blood oxygen, a high MQ-6 gas count, and a raised alarm each have their own buzzer pattern. The MQ-6 alarm level is a count of 1800, not a percent of the explosive limit. GPIO 4 silences a false alarm. GPIO 40 raises one. The buzzer is GPIO 5. Type `alarm` or `ack` on the wearable serial port to try the buttons before they are wired.
-- **Signed telemetry slot.** Packet version 2 carries every capstone field. ECDSA P-256 can sign the prefix once a key is provisioned. A signature checks authenticity and integrity. It does not encrypt the packet. The gateway still accepts the older 24-byte packet.
+What is on `master` now. Flash **both** boards after pulling, or the wearable can decide an alarm that the gateway never forwards.
+
+- **Station photograph.** The New Makati Central Fire Station picture stays behind the board (`web/public/station-bg.jpg`). Panels are dark glass over that photo. Titles are a plain sans (Geist). Numbers and clocks stay monospaced. Status color is only green, amber, and red.
+- **Health alarms, decided on the wearable.** A high pulse alarms only if it stays high while the wrist is not running: 120 bpm when idle, 150 bpm when walking, for about 8 seconds. A run with a high pulse is labeled exertion, not an alarm. A low pulse (45 bpm or under, ignoring anything under 30) waits about 10 seconds. Estimated SpO₂ at or under 92% waits about 8 seconds; at or under 88% waits about 5 seconds. A doubled or halved pulse while the wrist is still is marked suspect and is not alarmed. The board speaks the firmware decision. It does not re-decide from one sample.
+- **MQ-6 gas alarm.** The buzzer sounds when the raw ADC count stays at or above **1800** for about 5 seconds. It clears below **1500**. That number is not a percent of the explosive limit. BME688 gas resistance is a separate reading and does not raise this alarm. The heater needs about 10–15 minutes after each power-up.
+- **Buttons and buzzer.** GPIO 4 (active low) cancels fall grace and silences a health or gas alarm until the reading recovers. GPIO 40 raises an alarm. GPIO 5 is the buzzer at 2.7 kHz. Each condition has its own pattern: raised alarm, gas, critical health, fall distress, low SpO₂, low pulse, high pulse, fall grace. Serial `alarm` and `ack` do the same thing before the buttons are wired. `fall` still opens the 10-second cancel window.
+- **Packet size stayed put.** Health and gas travel in unused flag bits (`FLAG_HR_HIGH` through `FLAG_GAS_HIGH`). The packed ESP-NOW packet is still 187 bytes.
+- **Shared log.** A dev server no longer posts every packet to the hosted log. Writes wait 2 seconds apart. An HTTP 429 waits about 15 seconds and does not drop the local board. Local `POST /api/telemetry` was already succeeding when that red line appeared.
+- **Sensors that are reporting.** SCD40, MAX30102 (estimated pulse and SpO₂), MPU-6050 on the left wrist (idle, walk, run, and the WEDA-FALL score), BME688 with the gas heater on (320 °C, 150 ms, off the motion loop), and the MQ-6 count.
 - **Incidents and routes.** Save an address and the board geocodes it, then requests a driving option from an approximate Malugay Street origin. Routes are advisory.
 - **Router form.** Wi-Fi name and password are entered on the dashboard and stored on the computer and on the ESP32. Changing routers does not require an edit to `config.h` after the boards are flashed with this firmware.
 
@@ -19,7 +24,7 @@ On a new computer, read **[NEW-PC.md](NEW-PC.md)** before installing or flashing
 
 - **Node A (wearable):** ESP32-S3-DevKitC-1, wearer `FF-01`. Motion is sampled and sent about every 100 ms. Air sensors are polled on a slower non-blocking tick. Wi-Fi on this node is only for learning the gateway channel.
   - SCD40 on GPIO 8/9: CO₂, sensor temperature, humidity.
-  - BME688 on GPIO 17/18: air temperature, humidity, pressure. The gas heater is forced off so a heater cycle cannot stall the 100 ms loop, so **gas resistance stays 0**. That 0 is not a gas reading.
+  - BME688 on GPIO 17/18: air temperature, humidity, pressure, and gas resistance. The heater is on (320 °C, 150 ms) and does not block the motion loop. That resistance is not the MQ-6 alarm.
   - MAX30102 on GPIO 8/9: estimated heart rate and SpO₂ while a finger covers the glass. Not a clinical reading. See [Reading limits](#reading-limits).
   - MPU-6050 on GPIO 8/9, **VCC on 3.3 V**: acceleration and gyro. Powering this module from 5 V pulls SDA/SCL above 3.3 V and locks the pulse sensor.
   - MQ-6: heater on the devkit 5 V pin, analog output on GPIO 1 through a resistor divider. The log shows a raw ADC count, not %LEL.
@@ -37,10 +42,10 @@ Slots exist. The parts are not installed, and the firmware does not probe a miss
 | --- | --- | --- |
 | GPS | A satellite fix, or a last-known point that is not the current position | `GPS_ENABLED` |
 | 2000 mAh LiPo gauge | Battery percent | `BATTERY_SENSE_ENABLED` |
-| Touchscreen and buzzer | Local grace prompt | `TOUCHSCREEN_INSTALLED`, `BUZZER_INSTALLED` |
+| Touchscreen | Local grace prompt on a display. The buzzer is already fitted on GPIO 5 | `TOUCHSCREEN_INSTALLED` |
 | ECDSA P-256 | Sign the packet prefix. Not encryption | `ECDSA_SIGNING_ENABLED` |
 | Cellular modem | Planned gateway uplink | `CELLULAR_MODEM_INSTALLED` |
-| BME688 gas heater | Real gas resistance. Heater is off so the loop stays fast; the column reads 0 | `setGasHeater(0, 0)` in `features.cpp` |
+| BME688 gas heater | On. Resistance is published. It is not an LPG or CO alarm | `setGasHeater(320, 150)` in `features.cpp` |
 
 ## Router
 
@@ -102,7 +107,7 @@ That writes `datasets/mpu/walk.<stamp>.csv` with columns `timestamp,accX,accY,ac
 
 These show up in the packet log and are properties of this firmware, not a broken dashboard column.
 
-- **Gas Ω = 0.** The BME688 heater is off. Temperature, humidity, and pressure on that row are still measured.
+- **BME gas resistance** is ohms from the heater, not the MQ-6 count and not a percent LEL. A 0 there means that sample had no resistance yet, not that the heater is switched off.
 - **Heart rate can jump from about 80 to about 160.** The detector treats a second bump in the same pulse (the dicrotic notch, motion, or a loose finger) as another beat. Intervals from 300 ms to 1500 ms are kept, so a doubled 80 bpm beat is stored as 160. A steady finger with one peak per beat stays near the real rate. It is an estimate.
 - **SpO₂** is `110 - 25 × (red/IR ratio)`. Values outside 70–100 are blank. 71 and 81 are that formula, not a medical oxygen reading.
 - **Red and infrared** are blank when the stored packet has no raw counts. Flash both nodes from this repo so the gateway forwards those fields.
@@ -110,17 +115,22 @@ These show up in the packet log and are properties of this firmware, not a broke
 - **Fall** opens grace from the WEDA-FALL score, the impact heuristic, or the serial command `fall`. A quiet wrist stays `idle` with motion class Clear once the 3-second window is full.
 - **GPS** is `—` because no receiver is fitted. **Signature** is `unsigned` because signing is off.
 
-## Work landed on 15 Nov 2026 (PHT)
+## Record of work (15 Nov 2026, PHT)
 
-These commits were made on this tree and were not on GitHub until this push. Older history on `master` was already there.
+These are on `master` at GitHub. Pull, then flash Node A and Node B together. Restart `npm run dev` in `web/` after the pull.
 
-- Wearable samples the MAX30102 (red + IR) and publishes an estimated heart rate and SpO₂.
-- After the SparkFun library opens `Wire`, GPIO 8 and 9 are restored so the SCD40 and MPU-6050 stay on the bus.
-- Heart rate is counted from infrared peaks, averaged over a short window.
-- The USB bridge starts with the local board and posts on background threads so a slow hosted request cannot stall the serial read.
-- Overview, sensors, wearer, and the packet log show pulse and raw light when the packet carries them.
-- The shoulder idle/walk model was removed after the MPU-6050 moved to the wrist. The live fall score is the WEDA-FALL magnitude model.
-- The board cache, the telemetry write, and the page refresh were shortened so the log moves in about a second instead of minutes.
+| Commit | What it did |
+| --- | --- |
+| `d15f63c` | Forward-declared `sharedBusOn` so Node A compiles. The SCD40 address check was calling it before the declaration. |
+| `e3ce478` | Cross-checks the MPU-6050 with the pulse. High heart rate during a run is exertion. Low pulse and low SpO₂ alarm on their own. GPIO 4 silences, GPIO 40 raises, GPIO 5 buzzes. The board prints a sentence for each decision. |
+| `6a37d5b` | MQ-6 alarm at a raw count of 1800, held 5 seconds, clear below 1500. Same cancel button. Not a percent LEL. |
+| `1fcfba8` | Shared hosted log waits 2 seconds between writes and backs off about 15 seconds on HTTP 429. The local board keeps the packet. |
+| `8847f5f` | First restyle of the board: token-based dark surfaces. |
+| `d748560` | Put `/station-bg.jpg` back and replaced the serif titles with Geist so the board stays a monitoring tool. |
+
+Earlier the same day, and already on `master` before those commits: MAX30102 red and infrared with an estimated pulse and SpO₂, the shared I2C bus restored after the SparkFun library opens `Wire`, the USB bridge posting off the serial thread, the wrist idle/walk/run and WEDA-FALL scores, and the BME688 heater publishing gas resistance without stalling the 100 ms loop.
+
+To see health and gas sentences on the board, both firmware images have to be the ones that send the `health` object. A gateway flashed earlier will still show the raw numbers and will omit the alarm sentence.
 
 ## Web app
 
