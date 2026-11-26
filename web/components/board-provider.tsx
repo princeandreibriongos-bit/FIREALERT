@@ -5,7 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import type { Incident } from "@/lib/incidents";
 import type { GatewayLink } from "@/lib/link-status";
 import { personNeedsReview } from "@/lib/health";
-import { latestByWearer, type NormalizedTelemetry } from "@/lib/telemetry-core";
+import { latestByWearer, withHealth, type NormalizedTelemetry } from "@/lib/telemetry-core";
 
 type BoardResponse = {
   ok: boolean;
@@ -54,7 +54,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
       const response = await fetch("/api/board");
       if (!response.ok) throw new Error("bad status");
       const json = (await response.json()) as BoardResponse;
-      setItems(json.items ?? []);
+      setItems((json.items ?? []).map((item) => withHealth(item)));
       setIncidents(json.incidents ?? []);
       if (json.gateway) setGateway(json.gateway);
       setError(null);

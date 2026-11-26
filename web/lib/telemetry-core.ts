@@ -19,6 +19,26 @@ export type HealthReport = {
   gasHigh: boolean;
 };
 
+export function blankHealth(): HealthReport {
+  return {
+    reported: false,
+    hrHigh: false,
+    hrLow: false,
+    spo2Low: false,
+    spo2Critical: false,
+    manual: false,
+    silenced: false,
+    exertion: false,
+    suspectPulse: false,
+    gasHigh: false,
+  };
+}
+
+/** Older stored packets have no health block. Treat that as "no decision yet". */
+export function withHealth<T extends { health?: HealthReport | null }>(item: T): T & { health: HealthReport } {
+  return item.health ? (item as T & { health: HealthReport }) : { ...item, health: blankHealth() };
+}
+
 export type Vec3 = { x: number | null; y: number | null; z: number | null };
 
 export type RawTelemetry = {
@@ -171,19 +191,7 @@ function installedReading(installed: boolean, value: unknown): number | null {
 }
 
 function healthOf(value: unknown): HealthReport {
-  const blank: HealthReport = {
-    reported: false,
-    hrHigh: false,
-    hrLow: false,
-    spo2Low: false,
-    spo2Critical: false,
-    manual: false,
-    silenced: false,
-    exertion: false,
-    suspectPulse: false,
-    gasHigh: false,
-  };
-  if (!isRecord(value)) return blank;
+  if (!isRecord(value)) return blankHealth();
   const on = (key: string) => value[key] === true;
   return {
     reported: true,
@@ -346,7 +354,7 @@ export function latestByWearer(items: NormalizedTelemetry[]): NormalizedTelemetr
   for (const item of items) {
     if (seen.has(item.wearer_id)) continue;
     seen.add(item.wearer_id);
-    crew.push(item);
+    crew.push(withHealth(item));
   }
   return crew;
 }

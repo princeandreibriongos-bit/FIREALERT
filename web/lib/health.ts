@@ -9,11 +9,12 @@ export type HealthCopy = {
   lines: string[];
 };
 
-export function healthNeedsReview(health: HealthReport): boolean {
+export function healthNeedsReview(health: HealthReport | null | undefined): boolean {
+  if (!health) return false;
   return health.hrHigh || health.hrLow || health.spo2Low || health.spo2Critical || health.manual || health.gasHigh;
 }
 
-export function personNeedsReview(person: { fall: { state: FallState }; health: HealthReport }): boolean {
+export function personNeedsReview(person: { fall: { state: FallState }; health?: HealthReport | null }): boolean {
   return fallNeedsReview(person.fall.state) || healthNeedsReview(person.health);
 }
 
@@ -25,8 +26,8 @@ function motionPhrase(label: string): string {
   return "not in a run";
 }
 
-export function healthCopy(health: HealthReport, activityLabel: string): HealthCopy {
-  if (!health.reported) {
+export function healthCopy(health: HealthReport | null | undefined, activityLabel: string): HealthCopy {
+  if (!health?.reported) {
     return {
       tone: "ok",
       lines: [
@@ -82,10 +83,10 @@ export function healthCopy(health: HealthReport, activityLabel: string): HealthC
   return { tone: sounding ? "alert" : health.silenced || health.suspectPulse ? "warn" : "ok", lines };
 }
 
-export function healthBadge(health: HealthReport): string | null {
-  if (!health.reported || !healthNeedsReview(health)) {
-    if (health.suspectPulse) return "Check pulse";
-    if (health.exertion) return "Running";
+export function healthBadge(health: HealthReport | null | undefined): string | null {
+  if (!health?.reported || !healthNeedsReview(health)) {
+    if (health?.suspectPulse) return "Check pulse";
+    if (health?.exertion) return "Running";
     return null;
   }
   if (health.manual && !health.silenced) return "Raised";

@@ -15,7 +15,7 @@ import {
   normalizeTelemetry,
   type NormalizedTelemetry,
 } from "../lib/telemetry-core.ts";
-import { healthBadge, healthCopy, healthNeedsReview } from "../lib/health.ts";
+import { healthBadge, healthCopy, healthNeedsReview, personNeedsReview } from "../lib/health.ts";
 import { applyWedaView, WEDA_GRACE_MS, type WedaPoint } from "../lib/weda-apply.ts";
 import { WEDA_THRESHOLD, wedaFallScore, type WristSample } from "../lib/weda-fall.ts";
 import { signatureStatus } from "../lib/verify.ts";
@@ -317,6 +317,16 @@ describe("wrist locomotion", () => {
 });
 
 describe("health alarms", () => {
+  it("treats a stored packet with no health block as not reported", () => {
+    assert.equal(healthNeedsReview(undefined), false);
+    assert.equal(healthBadge(undefined), null);
+    assert.match(healthCopy(undefined, "idle").lines[0], /has not sent a health decision/);
+    const entry = sample();
+    const stale = { ...entry, health: undefined };
+    assert.equal(personNeedsReview(stale), false);
+    assert.equal(latestByWearer([stale])[0]?.health.reported, false);
+  });
+
   it("waits for a decision from the wearable", () => {
     const entry = sample();
     assert.equal(entry.health.reported, false);
