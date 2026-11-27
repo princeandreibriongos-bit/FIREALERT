@@ -454,7 +454,9 @@ def link_payload(state: dict) -> dict[str, object]:
     return payload
 
 
-LOCAL_QUEUE: queue.Queue[tuple[str, dict, str]] = queue.Queue(maxsize=400)
+# About 3 seconds of packets. When the board falls behind, the oldest packets are
+# dropped so the dashboard shows what the wearer is doing now, not a backlog.
+LOCAL_QUEUE: queue.Queue[tuple[str, dict, str]] = queue.Queue(maxsize=25)
 HOSTED_QUEUE: queue.Queue[tuple[str, dict]] = queue.Queue(maxsize=40)
 _WORKERS_STARTED = False
 

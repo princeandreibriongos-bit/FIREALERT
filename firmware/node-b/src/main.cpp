@@ -111,8 +111,9 @@ static bool queuePush(const QueuedPacket &item) {
   portENTER_CRITICAL(&g_queueMux);
   const uint8_t next = static_cast<uint8_t>((g_qHead + 1) % QUEUE_DEPTH);
   if (next == g_qTail) {
-    portEXIT_CRITICAL(&g_queueMux);
-    return false;
+    // Full: drop the oldest packet, not the newest. The board should show what
+    // the wearer is doing now, not what they were doing several seconds ago.
+    g_qTail = static_cast<uint8_t>((g_qTail + 1) % QUEUE_DEPTH);
   }
   g_queue[g_qHead] = item;
   g_qHead = next;
@@ -132,10 +133,38 @@ static bool queuePop(QueuedPacket &out) {
   return true;
 }
 
+/** The wearable broadcasts each packet twice. Forward one copy so the 115200 USB line keeps up. */
+struct SeenSource {
+  uint8_t mac[6];
+  uint16_t sequence;
+  bool used;
+};
+static SeenSource g_seen[4] = {};
+static uint8_t g_seenNext = 0;
+
+static bool isRepeatPacket(const uint8_t *mac, const uint8_t *data, int len) {
+  if (len < 4) return false;
+  // v1 and v2 both keep the sequence at bytes 2..3.
+  const uint16_t sequence = static_cast<uint16_t>(data[2] | (data[3] << 8));
+  for (SeenSource &seen : g_seen) {
+    if (!seen.used || memcmp(seen.mac, mac, 6) != 0) continue;
+    if (seen.sequence == sequence) return true;
+    seen.sequence = sequence;
+    return false;
+  }
+  SeenSource &slot = g_seen[g_seenNext];
+  g_seenNext = static_cast<uint8_t>((g_seenNext + 1) % (sizeof(g_seen) / sizeof(g_seen[0])));
+  memcpy(slot.mac, mac, 6);
+  slot.sequence = sequence;
+  slot.used = true;
+  return false;
+}
+
 static void enqueue(const uint8_t *mac, const uint8_t *data, int len, int8_t rssi) {
   if (mac == nullptr || data == nullptr || len <= 0 || len > static_cast<int>(PACKET_MAX)) {
     return;
   }
+  if (isRepeatPacket(mac, data, len)) return;
   QueuedPacket item = {};
   memcpy(item.data, data, static_cast<size_t>(len));
   item.len = static_cast<uint8_t>(len);
